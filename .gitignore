@@ -1,0 +1,8 @@
+node_modules/
+*.vault.json
+*.tsbuildinfo
+.env
+dist/
+*.pkcs8
+*.pem
+*.key

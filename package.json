@@ -1,0 +1,27 @@
+{
+  "name": "hail-user-client-ts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.0",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "vault:create": "bun src/cli/create-vault.ts",
+    "vault:verify": "bun src/cli/verify-vault.ts"
+  },
+  "dependencies": {
+    "@atproto/common": "0.8.1",
+    "@atproto/crypto": "0.5.4",
+    "@did-plc/lib": "file:../did-method-plc/packages/lib",
+    "@hailproto/codec": "file:../hailproto/packages/hail-codec-ts",
+    "@ipld/dag-cbor": "9.2.7",
+    "multiformats": "13.4.2"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2",
+    "typescript": "7.0.2",
+    "vitest": "5.0.0"
+  }
+}
