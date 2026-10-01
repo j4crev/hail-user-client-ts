@@ -117,3 +117,45 @@ store, use a different provider-independent recovery UX and produce identical
 signed PLC and Hail objects. The user-controlled client must still review the
 exact complete state, consent digests, keys, endpoints and alias preservation
 before signing; the test-oriented library is not that review interface.
+
+## Private PLC POC Ceremony
+
+POC-only provider migration can use **new** DIDs in the existing private
+PLC directory, with no public `plc.directory` registration. Once a vault is
+created and its recovery material has been independently checked, a POC
+provider gives the user a private preparation file containing the address,
+their public keys and the provider-owned operational public keys. The client
+signs the exact genesis and initial Address Binding with the user-held keys:
+
+```bash
+bun run poc:sign-onboarding -- /secure/user-controlled/alice.vault.json \
+  /secure/user-controlled/source-preparation.json \
+  /secure/user-controlled/alice.signed-onboarding.json
+```
+
+This atomically binds the vault to its new DID; retrying with the same signed
+output preserves the DID if the vault-file update was interrupted. The source
+provider registers **those exact signed bytes** in the internal POC PLC and
+verifies the address externally over HTTPS. The provider never receives the
+user recovery secret or either private user key.
+
+After the source has fenced the account, exported its signed snapshot, and
+the client has reviewed the target Offer and address-reservation receipt,
+the client signs the exact full-state cutover PLC operation, consent and
+destination Address Binding:
+
+```bash
+bun run poc:sign-cutover -- /secure/user-controlled/alice.vault.json \
+  /secure/user-controlled/source.snapshot.json \
+  /secure/user-controlled/target.offer.json \
+  /secure/user-controlled/target.reservation.json \
+  /secure/user-controlled/alice.consent.json \
+  /secure/user-controlled/alice.plc-operation.json \
+  /secure/user-controlled/alice.binding.cose
+```
+
+The destination stages these signed artifacts while inactive, submits the
+user-signed update only to the POC's **private PLC**, publishes the pending
+binding on its own Hail domain, and activates only after the exact private
+PLC log and address verify. The POC monitor profile is explicitly local and
+does not demonstrate independent monitoring or public PLC finality.
