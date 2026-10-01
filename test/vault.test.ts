@@ -5,7 +5,7 @@ import { createWebCryptoVerifier, verifySignedPayload, type HailAddressBinding, 
 import { base58btc } from "multiformats/bases/base58";
 import { describe, expect, it } from "vitest";
 import { createUserVault, unlockUserVault, type UserMigrationConsent, type UserTransferGrant,
-  type UserTransferAddressSelection, type UserVaultFile } from "../src/vault.js";
+  type UserTransferAddressSelection, type UserTransferCancellation, type UserVaultFile } from "../src/vault.js";
 import { verifyPortableMigrationConsent } from "../../hail-server-ts/src/migration/consent.js";
 import { verifyHandshake } from "../../hail-server-ts/src/migration/handshake.js";
 
@@ -103,6 +103,13 @@ describe("user-owned portable vault", () => {
     const signedSelection = await client.signTransferAddressSelection(selection);
     expect((await verifyHandshake(signedSelection, "hail.transfer-address-selection",
       generated.vault.identity.publicDidKey)).address).toBe(selection.address);
+    const cancellation: UserTransferCancellation = {
+      type: "hail.transfer-cancellation", version: 1, did: genesis.did, nonce: transfer.nonce,
+      grant_digest: new Uint8Array(createHash("sha256").update(signedTransfer.payloadBytes).digest()),
+      issued_at: now, expires_at: now + 3600 };
+    expect((await verifyHandshake(await client.signTransferCancellation(cancellation),
+      "hail.transfer-cancellation", generated.vault.identity.publicDidKey)).nonce)
+      .toBe(transfer.nonce);
     generated.recoverySecret.fill(0);
   });
 });

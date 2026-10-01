@@ -62,10 +62,18 @@ bun run transfer:grant -- /secure/user-controlled/alice.vault.json \
 The previous service base is obtained by the client from the DID's current
 PLC service, **not typed by the user**. The user chooses only `new.example.com`;
 the client derives its well-known invitation endpoint and `/hail` service.
+Submit the same signed grant to the current source (or repeat after `202`
+until the origin-verified Offer is available):
+
+```bash
+bun run transfer:submit-grant -- \
+  /secure/user-controlled/alice.transfer-grant.json \
+  /secure/user-controlled/alice.transfer-offer.json
+```
+
 The source verifies and stores the grant and sends its signed invitation to
-that domain. The target prepares keys and returns an inactive Transfer Offer
-to the source, which must deliver the *origin-verified* Offer to the user
-through an authenticated client channel. Once the user chooses a username,
+the named domain; the target returns an inactive Transfer Offer over the
+source's authenticated HTTPS connection. Once the user chooses a username,
 the client signs an exact Address Selection and sends it directly to the
 new provider's fixed reservation endpoint:
 
@@ -83,8 +91,22 @@ The target atomically reserves it and pushes the final signed request to the
 old provider; the old provider freezes the DID only after validation.
 Reservation does **not** yet publish a WebFinger binding or move the DID.
 The grant by itself cannot move the DID or release account state.
-The command prompts for the vault recovery secret and writes the signed grant
-as a new mode-`0600` file. This reference CLI has no full provider discovery or
+`transfer:grant` prompts for the vault recovery secret and writes the grant
+to a new mode-`0600` file.
+
+To cancel **before** the old provider fences the DID, the client signs an
+exact cancellation, obtains the old provider's signed no-fence receipt and
+forwards both records to the target. Repeat the same command and files if
+the target was temporarily unreachable; it must never release a possibly
+fenced transfer merely because a local expiry elapsed:
+
+```bash
+bun run transfer:cancel -- /secure/user-controlled/alice.vault.json \
+  /secure/user-controlled/alice.transfer-grant.json \
+  /secure/user-controlled/alice.cancellation.json \
+  /secure/user-controlled/alice.source-receipt.json
+```
+This reference CLI has no full provider discovery or
 review UI: verify the selected domain and exact Offer through an authenticated
 client channel before approving a real transfer. Tests verify
 those signatures against the pinned PLC and Hail codec implementations.

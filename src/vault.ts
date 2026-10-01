@@ -63,6 +63,11 @@ export interface UserTransferAddressSelection {
   address: string; selection_nonce: string; issued_at: number; expires_at: number;
 }
 
+export interface UserTransferCancellation {
+  type: "hail.transfer-cancellation"; version: 1; did: string; nonce: string;
+  grant_digest: Uint8Array; issued_at: number; expires_at: number;
+}
+
 function bytes(value: Uint8Array): Uint8Array<ArrayBuffer> { return Uint8Array.from(value); }
 function aad(role: Role, didKey: string): Uint8Array<ArrayBuffer> {
   return new TextEncoder().encode(`hail-user-vault-v1\0${role}\0${didKey}`);
@@ -202,6 +207,23 @@ export class UnlockedUserVault {
     }
     const payloadBytes = encodeDeterministic(selection as unknown as HailValue);
     const tag = new TextEncoder().encode("hail.transfer-address-selection.v1\0");
+    const input = new Uint8Array(tag.length + payloadBytes.length);
+    input.set(tag); input.set(payloadBytes, tag.length);
+    return { payloadBytes, signature: new Uint8Array(await crypto.subtle.sign("Ed25519", this.identity, bytes(input))) };
+  }
+
+  async signTransferCancellation(cancellation: UserTransferCancellation): Promise<{
+    payloadBytes: Uint8Array; signature: Uint8Array }> {
+    if (!this.vault.did || cancellation.did !== this.vault.did ||
+      cancellation.type !== "hail.transfer-cancellation" || cancellation.version !== 1 ||
+      cancellation.grant_digest.length !== 32 ||
+      !Number.isSafeInteger(cancellation.issued_at) || !Number.isSafeInteger(cancellation.expires_at) ||
+      cancellation.expires_at <= cancellation.issued_at ||
+      cancellation.expires_at - cancellation.issued_at > 3600) {
+      throw new Error("Cancellation must bind the exact user-initiated transfer");
+    }
+    const payloadBytes = encodeDeterministic(cancellation as unknown as HailValue);
+    const tag = new TextEncoder().encode("hail.transfer-cancellation.v1\0");
     const input = new Uint8Array(tag.length + payloadBytes.length);
     input.set(tag); input.set(payloadBytes, tag.length);
     return { payloadBytes, signature: new Uint8Array(await crypto.subtle.sign("Ed25519", this.identity, bytes(input))) };

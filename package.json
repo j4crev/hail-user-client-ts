@@ -6,7 +6,9 @@
   "packageManager": "bun@1.4.0",
   "scripts": {
     "transfer:grant": "bun src/cli/create-transfer-grant.ts",
+    "transfer:submit-grant": "bun src/cli/submit-transfer-grant.ts",
     "transfer:select": "bun src/cli/select-transfer-address.ts",
+    "transfer:cancel": "bun src/cli/cancel-transfer.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
