@@ -45,6 +45,24 @@ export interface UserMigrationConsent {
   expires_at: number;
 }
 
+export interface UserTransferGrant {
+  type: "hail.transfer-grant";
+  version: 1;
+  did: string;
+  nonce: string;
+  source_service_base: string;
+  destination_service_base: string;
+  destination_domain: string;
+  issued_at: number;
+  expires_at: number;
+}
+
+export interface UserTransferAddressSelection {
+  type: "hail.transfer-address-selection"; version: 1; did: string; nonce: string;
+  transfer_id: string; grant_digest: Uint8Array; offer_digest: Uint8Array;
+  address: string; selection_nonce: string; issued_at: number; expires_at: number;
+}
+
 function bytes(value: Uint8Array): Uint8Array<ArrayBuffer> { return Uint8Array.from(value); }
 function aad(role: Role, didKey: string): Uint8Array<ArrayBuffer> {
   return new TextEncoder().encode(`hail-user-vault-v1\0${role}\0${didKey}`);
@@ -153,6 +171,40 @@ export class UnlockedUserVault {
       payload.key_id !== `${this.vault.did}#hail-identity`) throw new Error("Grant signer DID is not the user vault");
     return signPayload("hail.grant", payload,
       createWebCryptoSigner(payload.key_id, this.identity));
+  }
+
+  async signTransferGrant(grant: UserTransferGrant): Promise<{
+    payloadBytes: Uint8Array; signature: Uint8Array }> {
+    if (!this.vault.did || grant.did !== this.vault.did ||
+      grant.type !== "hail.transfer-grant" || grant.version !== 1 ||
+      !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(grant.nonce) ||
+      !Number.isSafeInteger(grant.issued_at) || !Number.isSafeInteger(grant.expires_at) ||
+      grant.expires_at <= grant.issued_at || grant.expires_at - grant.issued_at > 3600 ||
+      grant.destination_service_base !== `https://${grant.destination_domain}/hail` ||
+      grant.source_service_base === grant.destination_service_base) {
+      throw new Error("Transfer grant must name this DID and one short-lived destination");
+    }
+    const payloadBytes = encodeDeterministic(grant as unknown as HailValue);
+    const tag = new TextEncoder().encode("hail.transfer-grant.v1\0");
+    const input = new Uint8Array(tag.length + payloadBytes.length);
+    input.set(tag); input.set(payloadBytes, tag.length);
+    return { payloadBytes, signature: new Uint8Array(await crypto.subtle.sign("Ed25519", this.identity, bytes(input))) };
+  }
+
+  async signTransferAddressSelection(selection: UserTransferAddressSelection): Promise<{
+    payloadBytes: Uint8Array; signature: Uint8Array }> {
+    if (!this.vault.did || selection.did !== this.vault.did ||
+      selection.type !== "hail.transfer-address-selection" || selection.version !== 1 ||
+      selection.grant_digest.length !== 32 || selection.offer_digest.length !== 32 ||
+      !Number.isSafeInteger(selection.issued_at) || !Number.isSafeInteger(selection.expires_at) ||
+      selection.expires_at <= selection.issued_at || selection.expires_at - selection.issued_at > 3600) {
+      throw new Error("Address selection must bind the user's DID, exact offer and grant");
+    }
+    const payloadBytes = encodeDeterministic(selection as unknown as HailValue);
+    const tag = new TextEncoder().encode("hail.transfer-address-selection.v1\0");
+    const input = new Uint8Array(tag.length + payloadBytes.length);
+    input.set(tag); input.set(payloadBytes, tag.length);
+    return { payloadBytes, signature: new Uint8Array(await crypto.subtle.sign("Ed25519", this.identity, bytes(input))) };
   }
 
   async signAddressBinding(payload: HailAddressBinding): Promise<Uint8Array> {

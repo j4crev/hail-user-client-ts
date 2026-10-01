@@ -5,6 +5,8 @@
   "type": "module",
   "packageManager": "bun@1.4.0",
   "scripts": {
+    "transfer:grant": "bun src/cli/create-transfer-grant.ts",
+    "transfer:select": "bun src/cli/select-transfer-address.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",

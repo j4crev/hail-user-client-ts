@@ -49,7 +49,44 @@ line, send it to a provider, or store the only backup on the provider. Copy
 the encrypted vault independently and repeat verification on another device
 before publishing a DID. The library signs regular PLC creation or migration
 operations with the user recovery key and Grants, Address Bindings and
-portable-migration consent with the separate user identity key. Tests verify
+portable-migration consent with the separate user identity key. It also signs
+a short-lived, destination-scoped **Transfer Grant** before the old provider
+can offer a transfer to the new provider:
+
+```bash
+bun run transfer:grant -- /secure/user-controlled/alice.vault.json \
+  https://old.example.com/hail new.example.com \
+  /secure/user-controlled/alice.transfer-grant.json
+```
+
+The previous service base is obtained by the client from the DID's current
+PLC service, **not typed by the user**. The user chooses only `new.example.com`;
+the client derives its well-known invitation endpoint and `/hail` service.
+The source verifies and stores the grant and sends its signed invitation to
+that domain. The target prepares keys and returns an inactive Transfer Offer
+to the source, which must deliver the *origin-verified* Offer to the user
+through an authenticated client channel. Once the user chooses a username,
+the client signs an exact Address Selection and sends it directly to the
+new provider's fixed reservation endpoint:
+
+```bash
+bun run transfer:select -- /secure/user-controlled/alice.vault.json \
+  /secure/user-controlled/alice.transfer-grant.json \
+  /secure/user-controlled/alice.transfer-offer.json alice \
+  /secure/user-controlled/alice.selection.json \
+  /secure/user-controlled/alice.reservation.json
+```
+
+The destination address is `alice@new.example.com`. The same operation is
+used for a third-party provider or a user-operated Hail server on that domain.
+The target atomically reserves it and pushes the final signed request to the
+old provider; the old provider freezes the DID only after validation.
+Reservation does **not** yet publish a WebFinger binding or move the DID.
+The grant by itself cannot move the DID or release account state.
+The command prompts for the vault recovery secret and writes the signed grant
+as a new mode-`0600` file. This reference CLI has no full provider discovery or
+review UI: verify the selected domain and exact Offer through an authenticated
+client channel before approving a real transfer. Tests verify
 those signatures against the pinned PLC and Hail codec implementations.
 
 The local file format is **not** a mandatory Hail wire profile. A mobile

@@ -4,8 +4,10 @@ import { assureValidSig, validateOperationLog } from "@did-plc/lib";
 import { createWebCryptoVerifier, verifySignedPayload, type HailAddressBinding, type HailGrant } from "@hailproto/codec";
 import { base58btc } from "multiformats/bases/base58";
 import { describe, expect, it } from "vitest";
-import { createUserVault, unlockUserVault, type UserMigrationConsent, type UserVaultFile } from "../src/vault.js";
+import { createUserVault, unlockUserVault, type UserMigrationConsent, type UserTransferGrant,
+  type UserTransferAddressSelection, type UserVaultFile } from "../src/vault.js";
 import { verifyPortableMigrationConsent } from "../../hail-server-ts/src/migration/consent.js";
+import { verifyHandshake } from "../../hail-server-ts/src/migration/handshake.js";
 
 async function edDidKey() {
   const pair = (await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])) as CryptoKeyPair;
@@ -83,6 +85,24 @@ describe("user-owned portable vault", () => {
     const signedConsent = await client.signMigrationConsent(consent);
     expect((await verifyPortableMigrationConsent(signedConsent,
       generated.vault.identity.publicDidKey, now)).transfer_id).toBe(consent.transfer_id);
+    const transfer: UserTransferGrant = { type: "hail.transfer-grant", version: 1, did: genesis.did,
+      nonce: randomUUID(), source_service_base: consent.source_service_base,
+      destination_service_base: consent.destination_service_base,
+      destination_domain: "next.example.com",
+      issued_at: now, expires_at: now + 1800 };
+    const signedTransfer = await client.signTransferGrant(transfer);
+    expect((await verifyHandshake(signedTransfer, "hail.transfer-grant",
+      generated.vault.identity.publicDidKey)).nonce).toBe(transfer.nonce);
+    await expect(client.signTransferGrant({ ...transfer, did: `did:plc:${"b".repeat(24)}` }))
+      .rejects.toThrow("this DID");
+    const selection: UserTransferAddressSelection = {
+      type: "hail.transfer-address-selection", version: 1, did: genesis.did,
+      nonce: transfer.nonce, transfer_id: randomUUID(), grant_digest: randomBytes(32),
+      offer_digest: randomBytes(32), address: "alice@next.example.com", selection_nonce: randomUUID(),
+      issued_at: now, expires_at: now + 900 };
+    const signedSelection = await client.signTransferAddressSelection(selection);
+    expect((await verifyHandshake(signedSelection, "hail.transfer-address-selection",
+      generated.vault.identity.publicDidKey)).address).toBe(selection.address);
     generated.recoverySecret.fill(0);
   });
 });
