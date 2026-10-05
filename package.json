@@ -15,7 +15,9 @@
     "vault:create": "bun src/cli/create-vault.ts",
     "vault:verify": "bun src/cli/verify-vault.ts",
     "poc:sign-onboarding": "bun src/cli/sign-private-poc-onboarding.ts",
-    "poc:sign-cutover": "bun src/cli/sign-private-poc-cutover.ts"
+    "poc:sign-cutover": "bun src/cli/sign-private-poc-cutover.ts",
+    "poc:create-disposable-vault": "bun src/cli/create-private-poc-vault.ts",
+    "poc:verify-vault-copy": "bun src/cli/verify-private-poc-backup.ts"
   },
   "dependencies": {
     "@atproto/common": "0.8.1",
