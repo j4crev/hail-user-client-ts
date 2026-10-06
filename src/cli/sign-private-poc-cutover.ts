@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { open, readFile, stat, unlink } from "node:fs/promises";
-import { decodeBase64Url, decodeDeterministic, encodeBase64Url,
+import { isDeepStrictEqual } from "node:util";
+import { cidForCbor } from "@atproto/common";
+import { assureValidSig, def, type Operation } from "@did-plc/lib";
+import * as dagCbor from "@ipld/dag-cbor";
+import { createWebCryptoVerifier, decodeBase64Url, decodeDeterministic, encodeBase64Url,
+  verifySignedPayload,
   type HailAddressBinding } from "@hailproto/codec";
 import { base58btc } from "multiformats/bases/base58";
 import { unlockUserVault, type UserMigrationConsent, type UserVaultFile } from "../vault.js";
@@ -12,6 +17,13 @@ async function privateFile(path: string, limit: number): Promise<Uint8Array> {
     throw new Error("Cutover input must be a bounded private mode-0600 regular file");
   }
   return new Uint8Array(await readFile(path));
+}
+async function existingPrivateFile(path: string, limit: number): Promise<Uint8Array | null> {
+  try { return await privateFile(path, limit); }
+  catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+    throw error;
+  }
 }
 async function save(path: string, bytes: Uint8Array): Promise<void> {
   const file = await open(path, "wx", 0o600);
@@ -38,7 +50,7 @@ async function verifySignature(kind: string, payload: Uint8Array,
   input.set(prefix); input.set(payload, prefix.length);
   if (!await crypto.subtle.verify("Ed25519", publicKey,
     Uint8Array.from(signature), Uint8Array.from(input))) {
-    throw new Error("Cutover record is not signed by the expected provider key");
+    throw new Error("Cutover record is not signed by the expected key");
   }
 }
 
@@ -127,18 +139,41 @@ try {
     decodeBase64Url(receiptRow.signature), offer.destination_messaging_key);
   const rotationKeys = [...prior.rotationKeys.filter((key) => key !== oldKey),
     manifest.destinationRotationPublicKey];
-  const update = await user.signPlcOperation({ type: "plc_operation", prev: evidence.operation_cid,
+  const unsigned = { type: "plc_operation" as const, prev: evidence.operation_cid,
     rotationKeys, verificationMethods: { ...prior.verificationMethods,
       "hail-messaging": manifest.destinationMessagingPublicKey },
     alsoKnownAs: prior.alsoKnownAs, services: { ...prior.services,
       hail: { type: "HailMessaging", endpoint: manifest.destinationServiceBase } },
-  });
-  if (update.did !== vault.did) throw new Error("Signed cutover changed the DID");
+  };
+  let operation: Operation;
+  let dagCborBytes: Uint8Array;
+  let operationCid: string;
+  const previousOperation = await existingPrivateFile(operationPath, 16_000);
+  if (previousOperation) {
+    operation = def.operation.parse(data(previousOperation));
+    if (!isDeepStrictEqual({ type: operation.type, prev: operation.prev,
+      rotationKeys: operation.rotationKeys, verificationMethods: operation.verificationMethods,
+      alsoKnownAs: operation.alsoKnownAs, services: operation.services }, unsigned)) {
+      throw new Error("Retained signed PLC operation is for another transfer or snapshot");
+    }
+    await assureValidSig([vault.recovery.publicDidKey], operation);
+    dagCborBytes = new Uint8Array(dagCbor.encode(operation));
+    operationCid = (await cidForCbor(operation)).toString();
+  } else {
+    const signed = await user.signPlcOperation(unsigned);
+    if (signed.did !== vault.did) throw new Error("Signed cutover changed the DID");
+    operation = signed.operation;
+    dagCborBytes = signed.dagCbor;
+    operationCid = signed.cid;
+    // Save the exact operation first so a restart never signs a competing
+    // operation after a consent has already committed to its DAG-CBOR hash.
+    await save(operationPath, new TextEncoder().encode(JSON.stringify(operation)));
+  }
   const now = Math.floor(Date.now() / 1000);
-  const consent: UserMigrationConsent = {
+  const expectedConsent: UserMigrationConsent = {
     type: "hail.portable-migration-consent", version: 1, did: vault.did,
     transfer_id: manifest.transferId, snapshot_digest: digest,
-    plc_operation_sha256: new Uint8Array(createHash("sha256").update(update.dagCbor).digest()),
+    plc_operation_sha256: new Uint8Array(createHash("sha256").update(dagCborBytes).digest()),
     source_service_base: manifest.sourceServiceBase,
     destination_service_base: manifest.destinationServiceBase,
     destination_address: receipt.address,
@@ -147,17 +182,50 @@ try {
     user_recovery_key: vault.recovery.publicDidKey,
     user_identity_key: vault.identity.publicDidKey, created_at: now, expires_at: now + 3600,
   };
-  const signedConsent = await user.signMigrationConsent(consent);
-  const signedBinding = await user.signAddressBinding({ type: "hail.address-binding", version: 1,
-    address: receipt.address, did: vault.did, issued_at: now,
-    expires_at: now + 90 * 86400, key_id: `${vault.did}#hail-identity` });
-  await save(consentPath, new TextEncoder().encode(JSON.stringify({
-    type: "hail.portable-migration-consent", version: 1,
-    payload: encodeBase64Url(signedConsent.payloadBytes),
-    signature: encodeBase64Url(signedConsent.signature),
-  })));
-  await save(operationPath, new TextEncoder().encode(JSON.stringify(update.operation)));
-  await save(bindingPath, signedBinding);
+  const priorConsent = await existingPrivateFile(consentPath, 16_384);
+  if (priorConsent) {
+    const stored = data(priorConsent);
+    if (stored.type !== "hail.portable-migration-consent" || stored.version !== 1 ||
+      typeof stored.payload !== "string" || typeof stored.signature !== "string") {
+      throw new Error("Retained migration consent container is invalid");
+    }
+    const bytes = decodeBase64Url(stored.payload);
+    await verifySignature("hail.portable-migration-consent.v1", bytes,
+      decodeBase64Url(stored.signature), vault.identity.publicDidKey);
+    const value = decodeDeterministic(bytes) as unknown as UserMigrationConsent;
+    if (value.expires_at <= now || !isDeepStrictEqual({ ...value,
+      created_at: expectedConsent.created_at, expires_at: expectedConsent.expires_at }, expectedConsent)) {
+      throw new Error("Retained migration consent is stale or commits to another operation");
+    }
+  } else {
+    const signedConsent = await user.signMigrationConsent(expectedConsent);
+    await save(consentPath, new TextEncoder().encode(JSON.stringify({
+      type: "hail.portable-migration-consent", version: 1,
+      payload: encodeBase64Url(signedConsent.payloadBytes),
+      signature: encodeBase64Url(signedConsent.signature),
+    })));
+  }
+  const priorBinding = await existingPrivateFile(bindingPath, 16_384);
+  if (priorBinding) {
+    const publicBytes = base58btc.decode(vault.identity.publicDidKey.slice("did:key:".length));
+    if (publicBytes.length !== 34 || publicBytes[0] !== 0xed || publicBytes[1] !== 0x01) {
+      throw new Error("User identity key is not an Ed25519 DID key");
+    }
+    const verified = await verifySignedPayload("hail.address-binding", priorBinding,
+      createWebCryptoVerifier(async (kid) => {
+        if (kid !== `${vault.did}#hail-identity`) throw new Error("Old binding has another identity signer");
+        return crypto.subtle.importKey("raw", Uint8Array.from(publicBytes.slice(2)),
+          "Ed25519", false, ["verify"]);
+      }));
+    if (verified.payload.address !== receipt.address || verified.payload.did !== vault.did ||
+      verified.payload.expires_at <= now) {
+      throw new Error("Retained destination binding does not match this transfer");
+    }
+  } else {
+    await save(bindingPath, await user.signAddressBinding({ type: "hail.address-binding", version: 1,
+      address: receipt.address, did: vault.did, issued_at: now,
+      expires_at: now + 90 * 86400, key_id: `${vault.did}#hail-identity` }));
+  }
   console.info(JSON.stringify({ did: vault.did, transferId: manifest.transferId,
-    address: receipt.address, operationCid: update.cid, profile: "private-poc" }));
+    address: receipt.address, operationCid, profile: "private-poc" }));
 } finally { secret.fill(0); }

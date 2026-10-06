@@ -159,3 +159,19 @@ user-signed update only to the POC's **private PLC**, publishes the pending
 binding on its own Hail domain, and activates only after the exact private
 PLC log and address verify. The POC monitor profile is explicitly local and
 does not demonstrate independent monitoring or public PLC finality.
+
+For a user-key-controlled POC recipient, the source provider can propose
+one Grant after verifying the sender's Hail address and Sender Profile. The
+client reviews **both addresses**, signs with its own `#hail-identity` and
+returns the COSE representation for import/publication:
+
+```bash
+bun run poc:sign-grant -- /secure/user-controlled/alice.vault.json \
+  /secure/user-controlled/grant-proposal.json \
+  alice@hailproto.dev sender@hailproto.app \
+  /secure/user-controlled/alice-to-sender.grant.cose
+```
+
+The provider cannot decrypt the user identity key to author a Grant; it
+rechecks current destination evidence against the consent hashes before
+accepting the exact signed bytes.
