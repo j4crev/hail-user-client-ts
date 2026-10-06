@@ -18,9 +18,18 @@ another installation before public account activation.
 This is not a finished production client: there is no OS-keystore or hardware
 integration, authenticated multi-device transfer, public PLC write-registry
 ceremony, Grant/Address Binding review UI, or independently provisioned
-monitor. The current public POC DIDs were created custodially in a private
-directory; creating this vault does not convert those DIDs to the public
-portable-custody profile.
+monitor. The original Alice/Bob POC DIDs were created custodially in a private
+directory; creating this vault does not convert them. Fresh user-key-held
+private-PLC DIDs have completed onboarding, Grant signing and provider transfer
+with pending-message continuity. The same-VPS POC monitor proves functionality,
+not independent monitoring or public portable custody.
+
+Deployment instructions are in the [provider runbook](https://github.com/j4crev/hail-server-ts/blob/main/deploy/poc/README.md)
+and [monitor runbook](https://github.com/j4crev/hail-plc-monitor-ts/blob/main/deploy/poc/README.md).
+Run this client on the user device, not in either provider container; only
+reviewed public/signed artifacts are transferred to providers. See the
+[recovery checkpoints](https://github.com/j4crev/hailproto/blob/main/docs/production-portable-custody.md#resuming-a-private-plc-poc-ceremony)
+before retrying an interrupted transfer.
 
 ## Local Reference Flow
 
@@ -59,9 +68,12 @@ bun run transfer:grant -- /secure/user-controlled/alice.vault.json \
   /secure/user-controlled/alice.transfer-grant.json
 ```
 
-The previous service base is obtained by the client from the DID's current
-PLC service, **not typed by the user**. The user chooses only `new.example.com`;
-the client derives its well-known invitation endpoint and `/hail` service.
+The current reference CLI takes the previous service base as an argument; the
+operator must supply it from validated current PLC state. It does not perform
+automatic provider discovery. In a finished client, that value should come
+from DID resolution rather than free-form user input. The user chooses the
+destination domain `new.example.com`; the CLI derives its well-known invitation
+endpoint and `/hail` service.
 Submit the same signed grant to the current source (or repeat after `202`
 until the origin-verified Offer is available):
 
@@ -120,6 +132,12 @@ before signing; the test-oriented library is not that review interface.
 
 ## Private PLC POC Ceremony
 
+For disposable test identities, `poc:create-disposable-vault` writes a private
+vault and a separate mode-`0600` recovery-secret file on the user device;
+`poc:verify-vault-copy` verifies a copied vault locally. This same-device check
+does not prove independent-device backup or production recovery. Keep the
+ceremony directory mode `0700`, and never send either file to the VPS.
+
 POC-only provider migration can use **new** DIDs in the existing private
 PLC directory, with no public `plc.directory` registration. Once a vault is
 created and its recovery material has been independently checked, a POC
@@ -159,6 +177,13 @@ user-signed update only to the POC's **private PLC**, publishes the pending
 binding on its own Hail domain, and activates only after the exact private
 PLC log and address verify. The POC monitor profile is explicitly local and
 does not demonstrate independent monitoring or public PLC finality.
+
+Retry `poc:sign-cutover` with the same input/output paths to verify and reuse a
+complete artifact set byte-for-byte. Do not discard signed outputs to generate
+a new PLC operation after one may have been submitted. If only part of the
+artifact set exists, inspect the interruption before continuing. Target
+activation and source retirement can recover a completed result with the exact
+signed receipt; post-export cancellation is not an automated rollback.
 
 For a user-key-controlled POC recipient, the source provider can propose
 one Grant after verifying the sender's Hail address and Sender Profile. The
