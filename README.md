@@ -31,6 +31,28 @@ reviewed public/signed artifacts are transferred to providers. See the
 [recovery checkpoints](https://github.com/j4crev/hailproto/blob/main/docs/production-portable-custody.md#resuming-a-private-plc-poc-ceremony)
 before retrying an interrupted transfer.
 
+### Reference vault limitation: separate routine signing from recovery
+
+**Follow-up before production:** `unlockUserVault()` currently decrypts and
+loads both the `#hail-identity` key and the top PLC recovery key, even for a
+routine Grant signature or revocation. Only the identity key signs those
+objects, but the recovery key is still present in memory. This reference/test
+vault behavior does not meet the production requirement to keep PLC recovery
+authority offline during routine Grant signing (`spec/account-onboarding.md`,
+User Key Storage And Recovery).
+
+Add a separate identity-only unlock/signing path, with convenient device
+keystore protection, and keep PLC recovery unlocking explicit for reviewed
+onboarding, transfer or recovery. Do not solve this by giving either private
+key to the provider. The vault format remains a reference implementation
+detail; provider-independent backup and second-device recovery still need
+their own proof.
+
+See the [custody and offline-operation reference](https://github.com/j4crev/hailproto/blob/main/docs/production-portable-custody.md#key-custody-in-plain-language)
+for signing-role tables, Grant/binding renewal requirements and the verification
+plan. Routine provider messaging does not require the user signer to stay
+online; fresh consent and Address Bindings still require its signature.
+
 ## Local Reference Flow
 
 Build the sibling codec and pinned PLC library, then install and test:
@@ -200,3 +222,39 @@ bun run poc:sign-grant -- /secure/user-controlled/alice.vault.json \
 The provider cannot decrypt the user identity key to author a Grant; it
 rechecks current destination evidence against the consent hashes before
 accepting the exact signed bytes.
+
+### Revoke a user-signed Grant
+
+Use the exact **current** signed Grant retained on the user device (or obtained
+over an authenticated channel from the current provider). Review its Grant ID
+and the sender address recorded in its consent context:
+
+```bash
+bun run poc:revoke-grant -- /secure/user-controlled/alice.vault.json \
+  /secure/user-controlled/current.grant.cose \
+  "$grant_id" "$reviewed_sender_address" \
+  /secure/user-controlled/revoked.grant.cose
+```
+
+The client verifies the prior Grant under its vault identity key, checks the
+reviewed relationship, carries forward scope/expiration/consent, increments
+the revision, binds the exact predecessor digest and signs `status: revoked`.
+An identical retry with the same paths reuses the signed output bytes. A
+tampered prior Grant, mismatched relationship or conflicting output is rejected.
+A prior Grant signed with a different identity key requires historical-key
+reconciliation; this CLI fails closed rather than trusting provider metadata.
+
+Send **only** the signed revocation to the current provider:
+
+```bash
+bun run poc:grant-import -- "$own_address" "$reviewed_sender_address" revoked.grant.cose
+```
+
+That command runs in `hail-server-ts` with the current provider's environment.
+It verifies current identity authority and atomically stores the terminal
+revision with a publication job. New acceptance stops at that commit; sender
+notification may retry independently. Revocation needs no live sender address,
+profile or acknowledgement, and may revoke an already expired Grant. Previously
+accepted messages retain their delivery responsibility. If the provider has a
+newer revision, reconcile it instead of overwriting the chain. After transfer,
+import at the new provider, not the fenced/retired source.
