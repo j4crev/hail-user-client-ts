@@ -53,6 +53,74 @@ for signing-role tables, Grant/binding renewal requirements and the verification
 plan. Routine provider messaging does not require the user signer to stay
 online; fresh consent and Address Bindings still require its signature.
 
+## hailp Account CLI
+
+The first API-driven slice is available as `hailp` in this repository. It uses
+the provider's authenticated account API over HTTPS, returns JSON on stdout,
+and emits JSON errors on stderr with a nonzero exit. It currently operates on
+**existing active accounts**; self-service signup, managed identity authoring,
+message/inbox commands and binding renewal are later slices.
+
+After building the sibling libraries and installing dependencies as below,
+either invoke `bun run hailp -- ...` or install the local executable:
+
+```bash
+bun link
+hailp --help
+```
+
+For this bootstrap slice, the provider operator issues a mode-`0600` credential
+file with `account:credential-create` (see the provider README), then transfers
+it privately to the account owner. The file binds a random bearer credential
+to one provider HTTPS origin and account; only its hash is stored in the
+provider database. Credentials expire after 30 days. Read access is the default;
+Grant submission/revocation requires the explicit `--write-grants` issuance
+option. Issuance, rotation and credential revocation are operator tools for
+now, not self-service login. Treat the file as a secret; do not pass its token
+value as a command-line argument or put it in a URL.
+
+```bash
+export HAILP_CREDENTIAL_FILE=/secure/user-controlled/api.credential.json
+# Alternatively add --credentials /secure/user-controlled/api.credential.json.
+hailp account show
+hailp grant show "$grant_id"
+hailp grant show "$grant_id" --output /secure/user-controlled/current.grant.cose
+hailp grant submit /secure/user-controlled/user-signed.grant.cose
+hailp grant revoke "$grant_id" \
+  --vault /secure/user-controlled/alice.vault.json \
+  --output /secure/user-controlled/revoked.grant.cose
+```
+
+`grant show --output` creates a new immutable private file and refuses to
+overwrite an existing path. Displayed Grant JSON is diagnostic; the retained
+COSE bytes are the signed representation. Read-only display checks format,
+ID and digest against the authenticated provider response; revocation also
+verifies the identity signature locally against the vault. A token does not
+authorize changing an unrelated account's Grant, and a local grantee copy is
+not authority to revoke the grantor's lineage.
+
+For revocation, enter the vault recovery secret through the existing hidden
+terminal prompt or protected stdin. The CLI obtains the current signed Grant,
+checks the authenticated account/vault/Grant relationship, saves its signed
+terminal successor **before** submission and sends only those bytes. If a
+response is lost, repeat the same command and output path: the CLI can match
+the provider's already committed terminal revision and reuse the saved bytes.
+Conflicting output files or a changed identity key fail closed. The current
+reference vault still loads both user keys; the identity-only unlock caveat
+above remains applicable.
+
+A successful submission reports `publication: "durable"`: local signed state
+and publication responsibility are retained, not necessarily acknowledged by
+the sender yet. Publication retries are handled by the provider. Bearer
+credentials never replace the user identity signature, and this CLI has no
+unsigned local-blocking fallback or automatic managed-signing fallback.
+
+Requests use the credential file's origin with certificate validation, no
+redirects and a 10-second request deadline. Responses are bounded at 512 KiB;
+signed Grants at 256 KiB. Moving providers requires a new provider-local
+credential, not forwarding a token to an endpoint supplied by a redirect.
+Keep vaults, credentials and signed artifacts in private storage outside Git.
+
 ## Local Reference Flow
 
 Build the sibling codec and pinned PLC library, then install and test:

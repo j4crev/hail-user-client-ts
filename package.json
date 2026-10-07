@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "packageManager": "bun@1.4.0",
+  "bin": { "hailp": "src/cli/hailp.ts" },
   "scripts": {
+    "hailp": "bun src/cli/hailp.ts",
     "transfer:grant": "bun src/cli/create-transfer-grant.ts",
     "transfer:submit-grant": "bun src/cli/submit-transfer-grant.ts",
     "transfer:select": "bun src/cli/select-transfer-address.ts",
