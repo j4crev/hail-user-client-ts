@@ -160,10 +160,19 @@ export class UnlockedUserVault {
     return { operation, dagCbor: dagCborBytes, cid: (await cidForCbor(operation)).toString(), did };
   }
 
-  async bindDid(did: string, signedGenesis: Operation): Promise<UserVaultFile> {
+  async signManagedGenesis(unsigned: UnsignedOperation) {
+    if (unsigned.prev !== null || unsigned.rotationKeys[0] !== this.vault.recovery.publicDidKey ||
+      unsigned.verificationMethods["hail-identity"] === this.vault.identity.publicDidKey || unsigned.alsoKnownAs.length !== 0) {
+      throw new Error("Managed genesis requires explicit provider identity and owner-controlled recovery");
+    }
+    const operation = await signOperation(unsigned,this.recovery);
+    return {operation,did:await didForCreateOp(operation)};
+  }
+
+  async bindDid(did: string, signedGenesis: Operation, managed = false): Promise<UserVaultFile> {
     if (this.vault.did !== null || signedGenesis.prev !== null ||
       signedGenesis.rotationKeys[0] !== this.vault.recovery.publicDidKey ||
-      signedGenesis.verificationMethods["hail-identity"] !== this.vault.identity.publicDidKey ||
+      (!managed && signedGenesis.verificationMethods["hail-identity"] !== this.vault.identity.publicDidKey) ||
       !/^did:plc:[a-z2-7]{24}$/.test(did)) throw new Error("Cannot bind vault to this DID");
     await assureValidSig([this.vault.recovery.publicDidKey], signedGenesis);
     if (await didForCreateOp(signedGenesis) !== did) throw new Error("Vault DID does not match exact signed genesis");

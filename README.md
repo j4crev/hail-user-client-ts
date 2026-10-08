@@ -58,8 +58,11 @@ online; fresh consent and Address Bindings still require its signature.
 The first API-driven slice is available as `hailp` in this repository. It uses
 the provider's authenticated account API over HTTPS, returns JSON on stdout,
 and emits JSON errors on stderr with a nonzero exit. It currently operates on
-**existing active accounts**; self-service signup, managed identity authoring,
-message/inbox commands and binding renewal are later slices.
+existing active accounts and opt-in **private-PLC self-service signup**. Grant
+creation/listing, credential management, sending, inbox reads and invited replies
+are implemented. See [CLI workflows](docs/cli-workflows.md) for both custody
+profiles. Public-PLC onboarding, expired-token recovery and binding renewal
+remain separate work.
 
 After building the sibling libraries and installing dependencies as below,
 either invoke `bun run hailp -- ...` or install the local executable:
@@ -75,8 +78,10 @@ it privately to the account owner. The file binds a random bearer credential
 to one provider HTTPS origin and account; only its hash is stored in the
 provider database. Credentials expire after 30 days. Read access is the default;
 Grant submission/revocation requires the explicit `--write-grants` issuance
-option. Issuance, rotation and credential revocation are operator tools for
-now, not self-service login. Treat the file as a secret; do not pass its token
+option. `--full-access` operator issuance or self-service signup also grants
+message and credential-management scopes. Full-access clients can create and
+revoke credentials through the API; rotate before expiry. This is not an
+expired-token recovery/login mechanism. Treat the file as a secret; do not pass its token
 value as a command-line argument or put it in a URL.
 
 ```bash
@@ -112,11 +117,12 @@ above remains applicable.
 A successful submission reports `publication: "durable"`: local signed state
 and publication responsibility are retained, not necessarily acknowledged by
 the sender yet. Publication retries are handled by the provider. Bearer
-credentials never replace the user identity signature, and this CLI has no
-unsigned local-blocking fallback or automatic managed-signing fallback.
+credentials do not replace identity signatures in owner-controlled accounts.
+Explicit managed accounts request provider identity signatures instead; there
+is no unsigned blocking or automatic custody fallback.
 
 Requests use the credential file's origin with certificate validation, no
-redirects and a 10-second request deadline. Responses are bounded at 512 KiB;
+redirects and a 20-second request deadline. Responses are bounded at 512 KiB;
 signed Grants at 256 KiB. Moving providers requires a new provider-local
 credential, not forwarding a token to an endpoint supplied by a redirect.
 Keep vaults, credentials and signed artifacts in private storage outside Git.

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
-import { decodeBase64Url, encodeBase64Url, inspectSignedPayload, type HailGrant } from "@hailproto/codec";
+import { decodeBase64Url, encodeBase64Url, inspectSignedPayload, fromDiagnosticJson, type DiagnosticJson, type HailGrant } from "@hailproto/codec";
 import { privateFile } from "./grant-revocation.js";
 
 const GRANT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -20,6 +20,12 @@ export class AccountApiClient {
   private constructor(private readonly provider: string, private readonly token: string,
     private readonly accountId: string) {}
 
+  static signup(provider: string, token: string) {
+    const url=new URL(provider);
+    if(url.protocol!=="https:"||url.origin!==provider||url.username||url.password||url.search||url.hash||isIP(url.hostname)!==0||!/^[a-z0-9.-]+$/.test(url.hostname)||!/^hailp_[A-Za-z0-9_-]{43}$/.test(token))throw new Error("Invalid signup origin or token");
+    return new AccountApiClient(provider,token,"");
+  }
+
   static async fromCredentialFile(path: string): Promise<AccountApiClient> {
     const record = object(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await privateFile(path, 16_384))));
     if (record.type !== "hailp.api-credential" || record.version !== 1 ||
@@ -35,15 +41,15 @@ export class AccountApiClient {
     return new AccountApiClient(record.provider, record.token, record.accountId);
   }
 
-  private async request(path: string, bytes?: Uint8Array): Promise<JsonObject> {
+  async request(path: string, bytes?: Uint8Array | JsonObject, namespace = "/api/v1/account"): Promise<JsonObject> {
     const headers: Record<string, string> = { Authorization: `Bearer ${this.token}`,
       Accept: "application/json", "Accept-Encoding": "identity", "Cache-Control": "no-store" };
-    if (bytes) headers["Content-Type"] = 'application/cose; cose-type="cose-sign1"';
+    if (bytes) headers["Content-Type"] = bytes instanceof Uint8Array ? 'application/cose; cose-type="cose-sign1"' : "application/json";
     let response: Response;
     try {
-      response = await fetch(`${this.provider}/api/v1/account${path}`, {
-        method: bytes ? "PUT" : "GET", headers, redirect: "error", credentials: "omit",
-        signal: AbortSignal.timeout(10_000), ...(bytes ? { body: Uint8Array.from(bytes) } : {}),
+      response = await fetch(`${this.provider}${namespace}${path}`, {
+        method: bytes ? bytes instanceof Uint8Array ? "PUT" : "POST" : "GET", headers, redirect: "error", credentials: "omit",
+        signal: AbortSignal.timeout(20_000), ...(bytes ? { body: bytes instanceof Uint8Array ? Uint8Array.from(bytes) : JSON.stringify(bytes) } : {}),
       });
     } catch { throw new Error("Provider API transport failed; check connectivity and HTTPS trust"); }
     if (!response.ok) { void response.body?.cancel(); throw new AccountApiError(response.status); }
@@ -80,10 +86,10 @@ export class AccountApiClient {
       result.accountId !== this.accountId || typeof result.did !== "string" || !/^did:plc:[a-z2-7]{24}$/.test(result.did) ||
       typeof result.address !== "string" || result.address.length > 254 ||
       ![null, "fenced", "exported", "retired"].includes(result.migrationState as null | string) ||
-      !["owner-controlled", "custodial-poc", "unknown"].includes(result.custodyProfile as string) ||
+      !["owner-controlled", "managed", "custodial-poc", "unknown"].includes(result.custodyProfile as string) ||
       !publicKey(result.identityPublicKey) || !publicKey(result.ownerRecoveryPublicKey) ||
       ![null, "independent", "poc-local"].includes(result.monitorVerificationMode as null | string) ||
-      !Array.isArray(result.scopes) || !result.scopes.every(scope => ["account:read", "grants:read", "grants:write"].includes(scope))) {
+      !Array.isArray(result.scopes) || !result.scopes.every(scope => ["account:read", "grants:read", "grants:write","credentials:write","messages:read","messages:write"].includes(scope))) {
       throw new Error("Provider account does not match the credential or API contract");
     }
     return { provider: this.provider, accountId: this.accountId, did: result.did, address: result.address,
@@ -113,5 +119,11 @@ export class AccountApiClient {
     if (result.grantId !== payload.grant_id || result.revision !== payload.revision || result.status !== payload.status ||
       result.digest !== digest || result.publication !== "durable") throw new Error("Provider did not acknowledge the exact signed Grant");
     return { grantId: payload.grant_id, revision: payload.revision, status: payload.status, digest, publication: "durable" };
+  }
+
+  async propose(sender: string, category: string | null, expiresAt: number | null): Promise<HailGrant> {
+    const result = await this.request("/grants/proposals", { sender, category, expiresAt });
+    if (result.type !== "hailp.grant-proposal" || result.version !== 1) throw new Error("Invalid Grant proposal");
+    return fromDiagnosticJson("hail.grant", result.grant as DiagnosticJson);
   }
 }
