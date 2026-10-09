@@ -39,20 +39,28 @@ readiness. Check deployment separately before trying a new API on a live host.
   53 PostgreSQL integrations, and 3 client tests; typechecks/builds passed.
 
 Current limits: self-service signup is opt-in private PLC only; API credentials
-expire after 30 days and must be rotated while valid; messages accept text
+expire after 30 days; rotate while valid or use explicit owner proof for new
+access after expiry. Messages accept text
 files up to 64 KiB; Grant/inbox lists return at most 50 items. The reference
-vault still unlocks identity and recovery keys together. Public onboarding,
-expired-credential login/recovery, binding renewal and managed migration are
-not implemented.
+vault uses one encryption secret for both key records; routine Grant commands
+now unlock only identity (milestone 2). Public onboarding,
+binding renewal and managed migration are not implemented. Post-expiry owner
+login/recovery is deployed and verified on the private POC with migration 34;
+see the [lifecycle release evidence](lifecycle-release.md).
 
 ## Prioritized milestones
 
 ### 1. Validate and release the current slice
 
-- [ ] Rehearse migrations 32–33 against restored deployment copies and verify
+- [x] Rehearse migrations 32–33 against restored deployment copies and verify
   compatible images, backup retention and provider-local credential behavior.
-- [ ] Roll providers individually, verify readiness, then exercise disposable
+  [October 9 rehearsal evidence](cli-release-rehearsal.md); this rehearsal kept
+  live providers at migration 31. Image compatibility here proves worker-disabled schema/readiness
+  startup, not rollback after new account API writes.
+- [x] Roll providers individually, verify readiness, then exercise disposable
   owner-controlled and managed CLI accounts on the POC's real HTTPS endpoints.
+  [October 9 rollout evidence](cli-release-rollout.md): both providers at migration
+  33; both custody profiles passed signup/account/credential smoke on each host.
 - [ ] Verify signup interruption, credential isolation, Grant retries, send/
   inbox/reply and source fencing across process restarts; retain evidence.
 - [ ] Review current authorization, validation and error boundaries before
@@ -65,13 +73,25 @@ from a same-VPS demonstration.
 
 ### 2. Separate routine signing from recovery
 
-- [ ] Add an identity-only vault unlock/signing path for routine owner-controlled
+- [x] Add an identity-only vault unlock/signing path for routine owner-controlled
   Grant actions; keep recovery-key unlocking explicit for reviewed recovery/
   onboarding/transfer operations.
-- [ ] Define convenient device-keystore protection without assuming a WebAuthn
+  `unlockUserIdentity()` is used by API and legacy POC Grant commands. Regression
+  proof covers creation/revocation/exact retries with unreadable recovery
+  ciphertext, identity validation and preserved full-unlock requirements.
+  The v1 vault still shares one encryption secret; device protection is separate.
+- [x] Define convenient device-keystore protection without assuming a WebAuthn
   credential can directly produce Hail's raw Ed25519 signatures.
-- [ ] Add backup verification/import workflows and prove restoration on a second
+  [Device-keystore decision](device-keystore.md): independently wrapped
+  identity-only device record, Linux Secret Service unlock and explicit enrollment;
+  recovery backup secrets never enter the device keystore. OS integration remains
+  unimplemented; this item records the protection/lifecycle definition.
+- [x] Add backup verification/import workflows and prove restoration on a second
   installation/device, independent of provider-held data.
+  `hailp vault verify/backup/import` verify both keys and exact private copies.
+  [Offline second-installation evidence](vault-restoration.md) covers both custody
+  profiles, owner identity signing and owner recovery signatures with networking
+  disabled. Same-machine installations, not a second physical device.
 
 **Acceptance:** ordinary Grant actions never decrypt/load the PLC recovery key;
 losing one client installation does not destroy the only recoverable identity.
@@ -79,17 +99,41 @@ The vault format remains an implementation detail, not a protocol requirement.
 
 ### 3. Complete credential and account access lifecycle
 
-- [ ] Design authenticated login/recovery after credentials expire, including
+- [x] Design authenticated login/recovery after credentials expire, including
   managed accounts whose active identity key is provider-held. Keep account
   access recovery distinct from PLC identity recovery and custody changes.
-- [ ] Add credential inventory and deliberate narrower-scope issuance; ensure
+  [Account-access recovery decision](account-access-recovery.md): current owner
+  identity proof or deliberately selected owner recovery proof, provider-bound
+  one-time challenges and new credentials only. The design is now implemented
+  as `account login` with explicit signer/scopes and migration 34;
+  [verification evidence](account-access-verification.md) records both custody
+  paths, exact retries and current-authority/fence checks. Both custody profiles
+  also passed [real HTTPS POC recovery](lifecycle-release.md) on both providers.
+- [x] Add credential inventory and deliberate narrower-scope issuance; ensure
   an agent or read-only credential cannot gain additional authority.
-- [ ] Improve rotation workflows and expiry visibility while preserving private
+  Deployed API-plus-CLI slice: bounded `credential list` and repeated `--scope`
+  selection, subset enforcement, terminal revoked/expired tokens and exact
+  token/scope retries. [Credential lifecycle checks](credential-lifecycle.md)
+  record real HTTPS/PostgreSQL proof; [POC release proof](lifecycle-release.md)
+  also verifies inventory and narrower issuance on both hosts.
+- [x] Improve rotation workflows and expiry visibility while preserving private
   outputs and exact recovery from interrupted issuance.
+  `credential rotate` saves a new token and private request sidecar, verifies
+  the replacement before revoking its source and resumes with those same artifacts.
+  `account show` includes current credential ID/expiry; inventory and issuance also
+  expose expiry. [Rotation proof](credential-lifecycle.md#resumable-rotation)
+  covers fresh-process retries, both custody profiles and terminal/fenced failures.
 
 **Acceptance:** an authorized owner can restore account access without silently
 replacing top recovery authority, reviving revoked credentials or importing an
 owner's recovery private key into the provider. Scope escalation is rejected.
+
+**Acceptance status:** passed for the private POC. Migration 34 was rehearsed on
+restored copies of both live databases, providers were rolled individually, and
+both custody profiles passed expiry/recovery/rotation/scope/terminal-token checks
+on each real HTTPS origin. All four original PLC genesis logs were unchanged.
+See [release evidence and boundaries](lifecycle-release.md); this is not public
+PLC or independent production recovery evidence.
 
 ### 4. Address renewal and complete Grant revisions
 

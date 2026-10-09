@@ -31,22 +31,22 @@ reviewed public/signed artifacts are transferred to providers. See the
 [recovery checkpoints](https://github.com/j4crev/hailproto/blob/main/docs/production-portable-custody.md#resuming-a-private-plc-poc-ceremony)
 before retrying an interrupted transfer.
 
-### Reference vault limitation: separate routine signing from recovery
+### Routine signing and recovery
 
-**Follow-up before production:** `unlockUserVault()` currently decrypts and
-loads both the `#hail-identity` key and the top PLC recovery key, even for a
-routine Grant signature or revocation. Only the identity key signs those
-objects, but the recovery key is still present in memory. This reference/test
-vault behavior does not meet the production requirement to keep PLC recovery
-authority offline during routine Grant signing (`spec/account-onboarding.md`,
-User Key Storage And Recovery).
+`unlockUserIdentity()` decrypts and validates only the `#hail-identity` key and
+exposes Grant signing. Owner-controlled Grant creation/revocation, including
+the legacy POC Grant commands, use this path: they never decrypt or import the
+top PLC recovery key. `unlockUserVault()` still explicitly loads both keys for
+reviewed onboarding, backup verification and transfer operations.
 
-Add a separate identity-only unlock/signing path, with convenient device
-keystore protection, and keep PLC recovery unlocking explicit for reviewed
-onboarding, transfer or recovery. Do not solve this by giving either private
-key to the provider. The vault format remains a reference implementation
-detail; provider-independent backup and second-device recovery still need
-their own proof.
+The v1 vault format and its existing encryption secret are unchanged. Both
+encrypted key records still share that secret, so this is process-memory
+separation, not independent device-keystore protection or an offline recovery
+storage boundary. [Device-keystore protection is defined](docs/device-keystore.md)
+but not integrated. Offline `hailp vault verify/backup/import` now provide
+verified backup and restoration; [second-installation evidence](docs/vault-restoration.md)
+covers both custody profiles on the same host. Neither private key is sent to
+the provider; the vault format remains an implementation detail.
 
 See the [custody and offline-operation reference](https://github.com/j4crev/hailproto/blob/main/docs/production-portable-custody.md#key-custody-in-plain-language)
 for signing-role tables, Grant/binding renewal requirements and the verification
@@ -61,8 +61,11 @@ and emits JSON errors on stderr with a nonzero exit. It currently operates on
 existing active accounts and opt-in **private-PLC self-service signup**. Grant
 creation/listing, credential management, sending, inbox reads and invited replies
 are implemented. See [CLI workflows](docs/cli-workflows.md) for both custody
-profiles. Public-PLC onboarding, expired-token recovery and binding renewal
-remain separate work.
+profiles. Explicit owner-key login after credential expiry, inventory/scoped
+issuance and rotation are deployed to both POC providers with migration 34 and
+`POC_ACCOUNT_ACCESS=true`; see [recovery workflows](docs/account-access-recovery.md)
+and [release evidence](docs/lifecycle-release.md).
+Public-PLC onboarding and binding renewal remain separate work.
 
 See the [CLI roadmap](docs/cli-roadmap.md) for the implemented baseline,
 prioritized milestones and acceptance conditions for remaining work.
@@ -113,9 +116,9 @@ checks the authenticated account/vault/Grant relationship, saves its signed
 terminal successor **before** submission and sends only those bytes. If a
 response is lost, repeat the same command and output path: the CLI can match
 the provider's already committed terminal revision and reuse the saved bytes.
-Conflicting output files or a changed identity key fail closed. The current
-reference vault still loads both user keys; the identity-only unlock caveat
-above remains applicable.
+Conflicting output files or a changed identity key fail closed. This decrypts
+only the identity key; the vault encryption secret is not the PLC recovery
+private key. The shared-secret/device-storage limitation above still applies.
 
 A successful submission reports `publication: "durable"`: local signed state
 and publication responsibility are retained, not necessarily acknowledged by
