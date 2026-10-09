@@ -137,20 +137,39 @@ PLC or independent production recovery evidence.
 
 ### 4. Address renewal and complete Grant revisions
 
-- [ ] Implement signed Address Binding renewal, expiry visibility/reminders and
+- [x] Implement signed Address Binding renewal, expiry visibility/reminders and
   safe publication retries; retain the current 90-day maximum unless the
   specification is explicitly revised.
-- [ ] Add active Grant updates: category changes, explicit renewal and consent
+  Local `binding show/renew` slice with identity-only/explicit managed signing,
+  seven-day reminder metadata, hosted-before-selected publication and exact
+  artifacts/retries. [Contract and proof](binding-renewal.md). Migration 35 adds
+  deliberate `account:write` authority without upgrading old credentials.
+  Provider-domain renewal only; not deployed. Grant revision work is recorded below.
+- [x] Add active Grant updates: category changes, explicit renewal and consent
   refresh. Support multiple selected categories without introducing wildcards.
-- [ ] Require fresh verified evidence/consent for expanded authorization; retain
+  Local `grant update` with repeated categories, reviewed expiry and explicit
+  consent refresh, identity-only/managed signatures and retained exact artifacts.
+  [Contract and proof](grant-revisions.md); not deployed.
+- [x] Require fresh verified evidence/consent for expanded authorization; retain
   prior consent for restrictions/revocation without relying on sender availability.
-- [ ] Define historical-key reconciliation before supporting identity rotation
+  Expansion/scope switches/expiry extension reverify both evidence objects;
+  pure restrictions preserve context offline. Evidence changes, forks and address
+  reassignment cannot overwrite signed history or transfer DID-bound authority.
+- [x] Define historical-key reconciliation before supporting identity rotation
   over unacknowledged predecessor revisions.
+  [Historical-key decision](grant-key-reconciliation.md): verified receipts and
+  retained signed PLC/object history precede any reconciliation. Execution is
+  deferred; this slice refuses new signer epochs rather than guessing authority.
 
 **Acceptance:** expired signers/permissions do not cause silent renewal;
 restrictions remain unilateral; conflicting revisions never overwrite signed
 history. Existing DID-bound Grants are not transferred or revoked merely
 because an address binding expires or an address changes holder.
+
+**Acceptance status:** binding renewal and stable-key Grant updates/consent paths
+pass focused local checks. Migration-35/client/provider release and real-host
+verification are pending under the no-deploy constraint. Historical-key policy is
+defined; identity-rotation reconciliation is intentionally not enabled.
 
 ### 5. Bring transfer and custody transitions into hailp
 

@@ -189,7 +189,43 @@ See the [restoration evidence](vault-restoration.md) and
 [device-keystore definition](device-keystore.md). Independent offline copies are
 still required; merely duplicating files on one disk is not a device-loss backup.
 
+## Address Binding renewal (local, not deployed)
+
+Migration 35 adds `account:write` for explicit account mutation; existing
+migration-34 credentials keep their scopes. With the matching local provider:
+
+```bash
+hailp binding show
+hailp binding renew --expires-at "$future_renewal_deadline" \
+  --vault /secure/account.vault.json --output /secure/renewed-binding.cose
+```
+
+Managed accounts omit `--vault`. Keep the output and its `.request.json` sidecar
+for exact retries. The deadline must extend expiry without exceeding the unchanged
+90-day lifetime; `binding show` reports expiry and a seven-day `renewalDue` reminder.
+There is no automatic signing/renewal. Renewal of an expired binding still requires
+valid account authority and the current identity signer. Historical representations
+and DID-bound Grants stay intact. See [binding renewal](binding-renewal.md) for
+publication, failure and scope details. Live POC providers remain at migration 34.
+
 ## Grants
+
+Active updates and multi-category creation are now implemented in the **local,
+not-deployed milestone-4 slice**:
+
+```bash
+hailp grant update "$grant_id" --category receipts --category security \
+  --expires-at "$renewal_deadline" --vault /secure/account.vault.json \
+  --output /secure/updated-grant.cose
+hailp grant update "$grant_id" --category receipts --category security \
+  --refresh-consent --vault /secure/account.vault.json --output /secure/refreshed-grant.cose
+```
+
+Managed accounts omit `--vault`. Omitted expiry flags preserve the predecessor's
+expiry, including expiration; renewed authorization needs deliberate expiry and
+fresh consent. Restrictions retain prior evidence even when the sender is offline.
+Keep the output and `.request.json` sidecar for exact retries. See
+[Grant revision rules](grant-revisions.md) and [historical-key holds](grant-key-reconciliation.md).
 
 ```bash
 hailp grant create updates@sender.example.com --category updates \
