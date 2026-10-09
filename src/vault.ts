@@ -6,6 +6,7 @@ import { createWebCryptoSigner, decodeBase64Url, encodeBase64Url, encodeDetermin
   type HailAddressBinding, type HailGrant, type HailValue } from "@hailproto/codec";
 import * as dagCbor from "@ipld/dag-cbor";
 import { base58btc } from "multiformats/bases/base58";
+import { accountAccessInput, type AccountAccessChallenge } from "./account-access-proof.js";
 
 type Role = "user-recovery" | "hail-identity";
 
@@ -115,21 +116,29 @@ export async function createUserVault(): Promise<VaultCreation> {
     recoverySecret: bytes(recoverySecret) };
 }
 
-export async function unlockUserVault(vault: UserVaultFile, recoverySecret: Uint8Array): Promise<UnlockedUserVault> {
-  if (vault.type !== "hail.user-vault" || vault.version !== 1 ||
+function validateVault(vault: UserVaultFile): void {
+  if (!vault || typeof vault !== "object" || Array.isArray(vault) ||
+    Object.keys(vault).length !== 6 || Object.keys(vault).some(key =>
+      !["type", "version", "did", "createdAt", "recovery", "identity"].includes(key)) ||
+    vault.type !== "hail.user-vault" || vault.version !== 1 ||
     (vault.did !== null && !/^did:plc:[a-z2-7]{24}$/.test(vault.did)) ||
-    vault.recovery.publicDidKey === vault.identity.publicDidKey) throw new Error("Invalid user vault representation");
-  const key = await cipher(recoverySecret);
-  const [rotationBytes, identityBytes] = await Promise.all([
-    unseal(key, vault.recovery, "user-recovery"), unseal(key, vault.identity, "hail-identity"),
-  ]);
+    typeof vault.createdAt !== "string" || !Number.isFinite(Date.parse(vault.createdAt))) throw new Error("Invalid user vault representation");
+  for (const [record, role] of [[vault.recovery, "user-recovery"], [vault.identity, "hail-identity"]] as const) {
+    if (!record || typeof record !== "object" || Array.isArray(record) || Object.keys(record).length !== 4 ||
+      Object.keys(record).some(key => !["role", "publicDidKey", "nonce", "ciphertext"].includes(key)) ||
+      record.role !== role || typeof record.publicDidKey !== "string" || record.publicDidKey.length > 256 ||
+      !/^did:key:z[1-9A-HJ-NP-Za-km-z]+$/.test(record.publicDidKey) ||
+      typeof record.nonce !== "string" || typeof record.ciphertext !== "string") throw new Error("Invalid vault key record");
+  }
+  if (vault.recovery.publicDidKey === vault.identity.publicDidKey) throw new Error("Invalid user vault representation");
+}
+
+async function unlockIdentityKey(vault: UserVaultFile, key: CryptoKey): Promise<CryptoKey> {
+  const identityBytes = await unseal(key, vault.identity, "hail-identity");
   try {
-    // The official P-256 keypair may retain its input buffer. Pass a distinct
-    // copy so clearing our temporary decrypted bytes does not zero the signer.
-    const recovery = await P256Keypair.import(bytes(rotationBytes));
     const identity = await crypto.subtle.importKey("pkcs8", bytes(identityBytes), "Ed25519", false, ["sign"]);
     const publicBytes = base58btc.decode(vault.identity.publicDidKey.slice("did:key:".length));
-    if (recovery.did() !== vault.recovery.publicDidKey || publicBytes.length !== 34 ||
+    if (publicBytes.length !== 34 ||
       publicBytes[0] !== 0xed || publicBytes[1] !== 0x01) throw new Error("Vault public keys do not match private keys");
     const challenge = randomBytes(32);
     const signature = await crypto.subtle.sign("Ed25519", identity, bytes(challenge));
@@ -137,13 +146,51 @@ export async function unlockUserVault(vault: UserVaultFile, recoverySecret: Uint
     if (!await crypto.subtle.verify("Ed25519", publicKey, signature, bytes(challenge))) {
       throw new Error("Vault identity private key does not match its public key");
     }
-    return new UnlockedUserVault(vault, recovery, identity);
-  } finally { rotationBytes.fill(0); identityBytes.fill(0); }
+    return identity;
+  } finally { identityBytes.fill(0); }
+}
+
+function signUserGrant(vault: UserVaultFile, identity: CryptoKey, payload: HailGrant): Promise<Uint8Array> {
+  if (!vault.did || payload.grantor !== vault.did ||
+    payload.key_id !== `${vault.did}#hail-identity`) throw new Error("Grant signer DID is not the user vault");
+  return signPayload("hail.grant", payload, createWebCryptoSigner(payload.key_id, identity));
+}
+
+export async function unlockUserIdentity(vault: UserVaultFile, secret: Uint8Array):
+  Promise<Pick<UnlockedUserVault, "vault" | "signGrant"> & { signAccountAccess(challenge: AccountAccessChallenge): Promise<Uint8Array> }> {
+  validateVault(vault);
+  const identity = await unlockIdentityKey(vault, await cipher(secret));
+  return { vault, signGrant: async payload => signUserGrant(vault, identity, payload),
+    async signAccountAccess(challenge) {
+      const input = accountAccessInput(challenge);
+      if (!vault.did || challenge.did !== vault.did || challenge.signer !== "identity" || challenge.publicKey !== vault.identity.publicDidKey) throw new Error("Login proof does not match this identity");
+      return new Uint8Array(await crypto.subtle.sign("Ed25519", identity, bytes(input)));
+    } };
+}
+
+export async function unlockUserVault(vault: UserVaultFile, recoverySecret: Uint8Array): Promise<UnlockedUserVault> {
+  validateVault(vault);
+  const key = await cipher(recoverySecret);
+  const rotationBytes = await unseal(key, vault.recovery, "user-recovery");
+  try {
+    // The official P-256 keypair may retain its input buffer. Pass a distinct
+    // copy so clearing our temporary decrypted bytes does not zero the signer.
+    const recovery = await P256Keypair.import(bytes(rotationBytes));
+    if (recovery.did() !== vault.recovery.publicDidKey) throw new Error("Vault public keys do not match private keys");
+    return new UnlockedUserVault(vault, recovery, await unlockIdentityKey(vault, key));
+  } finally { rotationBytes.fill(0); }
 }
 
 export class UnlockedUserVault {
   constructor(readonly vault: UserVaultFile, private readonly recovery: P256Keypair,
     private readonly identity: CryptoKey) {}
+
+  async signAccountRecovery(challenge: AccountAccessChallenge): Promise<Uint8Array> {
+    const input = accountAccessInput(challenge);
+    if (!this.vault.did || challenge.did !== this.vault.did || challenge.signer !== "owner-recovery" ||
+      challenge.publicKey !== this.vault.recovery.publicDidKey) throw new Error("Recovery proof does not match the reviewed owner key");
+    return this.recovery.sign(input);
+  }
 
   async signPlcOperation(unsigned: UnsignedOperation): Promise<{ operation: Operation;
     dagCbor: Uint8Array; cid: string; did: string }> {
@@ -181,10 +228,7 @@ export class UnlockedUserVault {
   }
 
   async signGrant(payload: HailGrant): Promise<Uint8Array> {
-    if (!this.vault.did || payload.grantor !== this.vault.did ||
-      payload.key_id !== `${this.vault.did}#hail-identity`) throw new Error("Grant signer DID is not the user vault");
-    return signPayload("hail.grant", payload,
-      createWebCryptoSigner(payload.key_id, this.identity));
+    return signUserGrant(this.vault, this.identity, payload);
   }
 
   async signTransferGrant(grant: UserTransferGrant): Promise<{

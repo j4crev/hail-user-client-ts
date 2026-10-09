@@ -6,6 +6,13 @@ import { privateFile } from "./grant-revocation.js";
 const GRANT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 const MAX_RESPONSE = 524_288;
+export const ACCOUNT_API_SCOPES = ["account:read", "grants:read", "grants:write", "credentials:write", "messages:read", "messages:write"] as const;
+export type AccountApiScope = typeof ACCOUNT_API_SCOPES[number];
+export function credentialScopes(value: unknown): AccountApiScope[] {
+  if (!Array.isArray(value) || !value.length || new Set(value).size !== value.length ||
+    value.some(scope => !ACCOUNT_API_SCOPES.includes(scope))) throw new Error("Invalid credential scopes");
+  return ACCOUNT_API_SCOPES.filter(scope => value.includes(scope));
+}
 type JsonObject = Record<string, unknown>;
 function object(value: unknown): JsonObject {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Provider API returned an invalid object");
@@ -89,13 +96,22 @@ export class AccountApiClient {
       !["owner-controlled", "managed", "custodial-poc", "unknown"].includes(result.custodyProfile as string) ||
       !publicKey(result.identityPublicKey) || !publicKey(result.ownerRecoveryPublicKey) ||
       ![null, "independent", "poc-local"].includes(result.monitorVerificationMode as null | string) ||
-      !Array.isArray(result.scopes) || !result.scopes.every(scope => ["account:read", "grants:read", "grants:write","credentials:write","messages:read","messages:write"].includes(scope))) {
+       !Array.isArray(result.scopes) || !result.scopes.every(scope => ACCOUNT_API_SCOPES.includes(scope))) {
       throw new Error("Provider account does not match the credential or API contract");
+    }
+    let credential: { credentialId: string; expiresAt: string } | null = null;
+    if (result.credential !== undefined) {
+      const metadata = object(result.credential);
+      if (typeof metadata.credentialId !== "string" || !UUID.test(metadata.credentialId) ||
+        typeof metadata.expiresAt !== "string" || !Number.isFinite(Date.parse(metadata.expiresAt))) {
+        throw new Error("Provider returned invalid current credential metadata");
+      }
+      credential = { credentialId: metadata.credentialId, expiresAt: metadata.expiresAt };
     }
     return { provider: this.provider, accountId: this.accountId, did: result.did, address: result.address,
       migrationState: result.migrationState, custodyProfile: result.custodyProfile, scopes: result.scopes,
       monitorVerificationMode: result.monitorVerificationMode, identityPublicKey: result.identityPublicKey,
-      ownerRecoveryPublicKey: result.ownerRecoveryPublicKey };
+      ownerRecoveryPublicKey: result.ownerRecoveryPublicKey, credential };
   }
 
   async grant(id: string): Promise<{ representation: Uint8Array; payload: HailGrant; localRole: "grantor" | "grantee"; digest: string }> {

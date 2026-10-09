@@ -3,7 +3,7 @@ import { open, readFile, stat, unlink } from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
 import { createWebCryptoVerifier, inspectSignedPayload, verifySignedPayload, type HailGrant } from "@hailproto/codec";
 import { base58btc } from "multiformats/bases/base58";
-import { unlockUserVault, type UserVaultFile } from "./vault.js";
+import { unlockUserIdentity, type UserVaultFile } from "./vault.js";
 
 export async function privateFile(path: string, limit: number): Promise<Uint8Array> {
   const info = await stat(path);
@@ -24,7 +24,7 @@ export async function savePrivateBytes(path: string, bytes: Uint8Array): Promise
 export async function signGrantRevocation(vaultPath: string, currentBytes: Uint8Array,
   expectedGrantId: string, expectedSenderAddress: string, outputPath: string, secret: Uint8Array,
   expectedDid?: string): Promise<Uint8Array> {
-  const user = await unlockUserVault(JSON.parse(new TextDecoder().decode(
+  const user = await unlockUserIdentity(JSON.parse(new TextDecoder().decode(
     await privateFile(vaultPath, 16_384))) as UserVaultFile, secret);
   if (!user.vault.did || expectedDid !== undefined && user.vault.did !== expectedDid) {
     throw new Error("Grant revocation needs the authenticated account's user vault");

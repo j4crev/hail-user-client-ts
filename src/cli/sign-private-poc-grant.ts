@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { open, readFile, stat, unlink } from "node:fs/promises";
 import { decodeBase64Url, decodePayload, encodeBase64Url } from "@hailproto/codec";
-import { unlockUserVault, type UserVaultFile } from "../vault.js";
+import { unlockUserIdentity, type UserVaultFile } from "../vault.js";
 import { readRecoverySecret } from "./private-input.js";
 
 async function privateFile(path: string, limit: number): Promise<Uint8Array> {
@@ -36,7 +36,7 @@ if (payload.consent_context.grantee_address !== expectedAddress ||
 const secret = decodeBase64Url((await readRecoverySecret()).trim());
 try {
   const vault = JSON.parse(new TextDecoder().decode(await privateFile(vaultPath, 16_384))) as UserVaultFile;
-  const user = await unlockUserVault(vault, secret);
+  const user = await unlockUserIdentity(vault, secret);
   if (!vault.did || payload.grantor !== vault.did ||
     payload.key_id !== `${vault.did}#hail-identity`) {
     throw new Error("Grant proposal is not for this user's active DID");

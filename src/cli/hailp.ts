@@ -5,18 +5,27 @@ import { AccountApiClient, AccountApiError } from "../account-api.js";
 import { privateFile, savePrivateBytes, signGrantRevocation } from "../grant-revocation.js";
 import { readRecoverySecret } from "./private-input.js";
 import { createGrant } from "../grant-creation.js";
-import { createAccount, writeState } from "../account-creation.js";
+import { createAccount } from "../account-creation.js";
 import { createUserVault } from "../vault.js";
-import { randomBytes } from "node:crypto";
 import { encodeBase64Url } from "@hailproto/codec";
 import { sendMessage } from "../message-creation.js";
+import { copyVerifiedVault, verifyVaultFile } from "../vault-backup.js";
+import { createCredential } from "../credential-creation.js";
+import { rotateCredential } from "../credential-rotation.js";
+import { loginAccount } from "../account-login.js";
 
 const help = `hailp — Hail Protocol account CLI (Bun 1.4+)
 
   hailp account show
+  hailp account login --provider <https-origin> --did <did> --signer <identity|owner-recovery> --vault <vault> --state <private-state> --credentials <new-output> --scope <permission> ...
   hailp vault create --vault <new-vault> --recovery-file <new-secret-file>
+  hailp vault verify --vault <private-vault> [--expected-did <did|unbound>]
+  hailp vault backup --vault <private-vault> --output <new-backup-vault>
+  hailp vault import --file <backup-vault> --vault <new-vault> --expected-did <did|unbound>
   hailp account create --provider <https-origin> --address <address> --custody <owner-controlled|managed> --vault <vault> --state <signup-state> --credentials <new-credential> --backup-verified
-  hailp credential create --output <new-credential>
+  hailp credential list [--after <credential-id>]
+  hailp credential create --output <new-credential> [--scope <permission> ...]
+  hailp credential rotate --output <new-credential>
   hailp credential revoke <credential-id>
   hailp send --grant <grant-id> [--category <category>] --file <text-file> --state <new-request-state> [--reply-until <unix-seconds>]
   hailp reply <original-message-id> --file <text-file> --state <new-request-state>
@@ -32,8 +41,10 @@ const help = `hailp — Hail Protocol account CLI (Bun 1.4+)
 
 Use --credentials <private-credential.json> or HAILP_CREDENTIAL_FILE.
 Results are JSON on stdout; errors are JSON on stderr with a nonzero exit.
-Revoke reads the vault recovery secret from hidden terminal input or protected stdin.
-It saves signed bytes before submission and reuses them on exact retries.`;
+Owner-controlled Grant signing reads the vault encryption secret from hidden terminal input or protected stdin.
+It decrypts only the identity key, not the PLC recovery private key.
+It saves signed bytes before submission and reuses them on exact retries.
+Vault verify/backup/import explicitly unlock both keys using protected secret input.`;
 
 try {
   const { values, positionals } = parseArgs({ args: Bun.argv.slice(2), allowPositionals: true,
@@ -42,25 +53,51 @@ try {
       "no-expiry": { type: "boolean" }, uncategorized: { type: "boolean" },
       provider:{type:"string"},address:{type:"string"},custody:{type:"string"},state:{type:"string"},
       "backup-verified":{type:"boolean"},"recovery-file":{type:"string"},
-      file:{type:"string"},grant:{type:"string"},"reply-until":{type:"string"},
+      file:{type:"string"},grant:{type:"string"},"reply-until":{type:"string"},"expected-did":{type:"string"},
+      scope: { type: "string", multiple: true },
+      did: { type: "string" }, signer: { type: "string" },
       help: { type: "boolean", short: "h" } } });
   if (values.help || !positionals.length) console.info(help);
   else {
     const [group, command, argument] = positionals;
-    if(group==="vault"&&command==="create"&&positionals.length===2) {
+    if(group==="vault") {
+      const allowed = command === "create" ? ["vault", "recovery-file"] : command === "verify" ? ["vault", "expected-did"] :
+        command === "backup" ? ["vault", "output"] : command === "import" ? ["file", "vault", "expected-did"] : [];
+      if (positionals.length !== 2 || !allowed.length || Object.keys(values).some(key => !allowed.includes(key))) {
+        throw new Error("Invalid vault command/options; use hailp --help");
+      }
+      if(command==="create") {
       if(!values.vault||!values["recovery-file"])throw new Error("Vault create requires two new private output files");
       const generated=await createUserVault();
       try {await savePrivateBytes(values["recovery-file"],new TextEncoder().encode(encodeBase64Url(generated.recoverySecret)+"\n"));
         await savePrivateBytes(values.vault,new TextEncoder().encode(JSON.stringify(generated.vault)));}
       finally {generated.recoverySecret.fill(0);}
       console.info(JSON.stringify({vaultFile:values.vault,recoveryFile:values["recovery-file"]}));
+      } else {
+        if (!values.vault || command === "backup" && !values.output ||
+          command === "import" && (!values.file || !values["expected-did"])) throw new Error("Vault command requires its private paths and import requires --expected-did");
+        const expectedDid = values["expected-did"] === "unbound" ? null : values["expected-did"];
+        const secret = decodeBase64Url(await readRecoverySecret());
+        try {
+          const result = command === "verify" ? await verifyVaultFile(values.vault, secret, expectedDid) :
+            await copyVerifiedVault(command === "backup" ? values.vault : values.file!,
+              command === "backup" ? values.output! : values.vault, secret, expectedDid);
+          console.info(JSON.stringify(result));
+        } finally { secret.fill(0); }
+      }
+    } else if(group==="account"&&command==="login") {
+      if (positionals.length !== 2 || Object.keys(values).some(key => !["provider", "did", "signer", "vault", "state", "credentials", "scope"].includes(key)) ||
+        !values.provider || !values.did || !["identity", "owner-recovery"].includes(values.signer ?? "") ||
+        !values.vault || !values.state || !values.credentials || !values.scope?.length) throw new Error("Login requires explicit provider, DID, signer, private paths and scopes");
+      console.info(JSON.stringify(await loginAccount(values.provider, values.did, values.signer as "identity" | "owner-recovery",
+        values.scope, values.vault, values.state, values.credentials)).replace(/hailp_[A-Za-z0-9_-]{43}/g, "[REDACTED]"));
     } else if(group==="account"&&command==="create"&&positionals.length===2) {
       if(!values.provider||!values.address||!values.vault||!values.state||!values.credentials||!values["backup-verified"]||
         !["owner-controlled","managed"].includes(values.custody ?? ""))throw new Error("Account create requires explicit custody, provider, outputs and --backup-verified");
       console.info(JSON.stringify(await createAccount(values.provider,values.address,values.custody as "owner-controlled"|"managed",values.vault,values.state,values.credentials)));
     } else {
     const valid = group === "account" && command === "show" && positionals.length === 2 ||
-      group === "credential" && command === "create" && positionals.length===2 || group==="credential"&&command==="revoke"&&positionals.length===3 ||
+       group === "credential" && ["create", "list", "rotate"].includes(command ?? "") && positionals.length===2 || group==="credential"&&command==="revoke"&&positionals.length===3 ||
       group==="send"&&positionals.length===1||group==="reply"&&positionals.length===2||
       group==="inbox"&&command==="list"&&positionals.length===2||group==="inbox"&&command==="show"&&positionals.length===4||
       group==="message"&&["status","submit"].includes(command ?? "")&&positionals.length===3||
@@ -69,6 +106,10 @@ try {
     if (!valid || group === "account" && (values.vault || values.output) ||
       command === "submit" && (values.vault || values.output) || command === "show" && values.vault) {
       throw new Error("Invalid command/options; use hailp --help");
+    }
+    if (group === "credential") {
+      const allowed = command === "create" ? ["credentials", "output", "scope"] : command === "rotate" ? ["credentials", "output"] : command === "list" ? ["credentials", "after"] : ["credentials"];
+      if (Object.keys(values).some(key => !allowed.includes(key))) throw new Error("Invalid credential command/options; use hailp --help");
     }
     const credential = values.credentials ?? Bun.env.HAILP_CREDENTIAL_FILE;
     if (!credential) throw new Error("Set --credentials or HAILP_CREDENTIAL_FILE");
@@ -86,18 +127,14 @@ try {
     else if(group==="message")result=await client.request(`/messages/${encodeURIComponent(argument!)}${command==="submit"?"/submit":""}`,command==="submit"?{}:undefined);
     else if(group==="credential") {
       if(command==="revoke")result=await client.request("/credentials",{revoke:argument!});
+      else if(command==="rotate") {
+        if(!values.output)throw new Error("Credential rotate requires --output");
+        result=await rotateCredential(credential, values.output);
+      }
+      else if(command==="list")result=await client.request(`/credentials${values.after ? `?after=${encodeURIComponent(values.after)}` : ""}`);
       else {
         if(!values.output)throw new Error("Credential create requires --output");
-        const account=await client.account();
-        let token:string;
-        try{const saved=JSON.parse(new TextDecoder().decode(await privateFile(values.output,16384)));
-          if(saved.provider!==account.provider||saved.accountId!==account.accountId||typeof saved.token!=="string")throw new Error("Credential output belongs to another account");token=saved.token;}
-        catch(error){if(!(error instanceof Error&&"code" in error&&error.code==="ENOENT"))throw error;
-          token=`hailp_${encodeBase64Url(randomBytes(32))}`;await savePrivateBytes(values.output,new TextEncoder().encode(JSON.stringify({provider:account.provider,accountId:account.accountId,token})));}
-        const record=await client.request("/credentials",{token});
-        if(record.token!==token)throw new Error("Credential acknowledgement differs");
-        await writeState(values.output,record);
-        result={credentialId:record.credentialId,credentialFile:values.output};
+        result=await createCredential(client, values.output, values.scope);
       }
     }
     else if (command === "list") result = await client.request(`/grants${values.after ? `?after=${encodeURIComponent(values.after)}` : ""}`);

@@ -1,7 +1,7 @@
 import { decodeBase64Url, inspectSignedPayload, verifySignedPayload, createWebCryptoVerifier, type HailGrant } from "@hailproto/codec";
 import { base58btc } from "multiformats/bases/base58";
 import { privateFile, savePrivateBytes } from "./grant-revocation.js";
-import { unlockUserVault, type UserVaultFile } from "./vault.js";
+import { unlockUserIdentity, type UserVaultFile } from "./vault.js";
 import { readRecoverySecret } from "./cli/private-input.js";
 import type { AccountApiClient } from "./account-api.js";
 
@@ -38,7 +38,7 @@ export async function createGrant(client: AccountApiClient, sender: string, cate
   }
   const secret = decodeBase64Url(await readRecoverySecret());
   try {
-    const user = await unlockUserVault(JSON.parse(new TextDecoder().decode(await privateFile(vaultPath,16_384))) as UserVaultFile,secret);
+    const user = await unlockUserIdentity(JSON.parse(new TextDecoder().decode(await privateFile(vaultPath,16_384))) as UserVaultFile,secret);
     if (user.vault.did !== account.did) throw new Error("Vault does not belong to the authenticated account");
     const signed = saved ?? await user.signGrant(payload);
     const publicBytes = base58btc.decode(user.vault.identity.publicDidKey.slice(8));
