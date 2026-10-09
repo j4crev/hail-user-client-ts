@@ -64,6 +64,9 @@ are implemented. See [CLI workflows](docs/cli-workflows.md) for both custody
 profiles. Public-PLC onboarding, expired-token recovery and binding renewal
 remain separate work.
 
+See the [CLI roadmap](docs/cli-roadmap.md) for the implemented baseline,
+prioritized milestones and acceptance conditions for remaining work.
+
 After building the sibling libraries and installing dependencies as below,
 either invoke `bun run hailp -- ...` or install the local executable:
 
