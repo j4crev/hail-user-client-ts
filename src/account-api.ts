@@ -6,7 +6,7 @@ import { privateFile } from "./grant-revocation.js";
 const GRANT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 const MAX_RESPONSE = 524_288;
-export const ACCOUNT_API_SCOPES = ["account:read", "grants:read", "grants:write", "credentials:write", "messages:read", "messages:write"] as const;
+export const ACCOUNT_API_SCOPES = ["account:read", "grants:read", "grants:write", "credentials:write", "messages:read", "messages:write", "account:write"] as const;
 export type AccountApiScope = typeof ACCOUNT_API_SCOPES[number];
 export function credentialScopes(value: unknown): AccountApiScope[] {
   if (!Array.isArray(value) || !value.length || new Set(value).size !== value.length ||
@@ -137,8 +137,8 @@ export class AccountApiClient {
     return { grantId: payload.grant_id, revision: payload.revision, status: payload.status, digest, publication: "durable" };
   }
 
-  async propose(sender: string, category: string | null, expiresAt: number | null): Promise<HailGrant> {
-    const result = await this.request("/grants/proposals", { sender, category, expiresAt });
+  async propose(sender: string, category: string|string[] | null, expiresAt: number | null): Promise<HailGrant> {
+    const result = await this.request("/grants/proposals", Array.isArray(category)?{sender,scope:{type:"categories",values:[...category].sort()},expiresAt}:{sender,category,expiresAt});
     if (result.type !== "hailp.grant-proposal" || result.version !== 1) throw new Error("Invalid Grant proposal");
     return fromDiagnosticJson("hail.grant", result.grant as DiagnosticJson);
   }

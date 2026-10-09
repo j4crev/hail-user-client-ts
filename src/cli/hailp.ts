@@ -13,10 +13,14 @@ import { copyVerifiedVault, verifyVaultFile } from "../vault-backup.js";
 import { createCredential } from "../credential-creation.js";
 import { rotateCredential } from "../credential-rotation.js";
 import { loginAccount } from "../account-login.js";
+import { renewBinding,showBinding } from "../binding-renewal.js";
+import { updateGrant } from "../grant-update.js";
 
 const help = `hailp — Hail Protocol account CLI (Bun 1.4+)
 
   hailp account show
+  hailp binding show
+  hailp binding renew --expires-at <unix-seconds> --output <binding.cose> [--vault <owner-vault>]
   hailp account login --provider <https-origin> --did <did> --signer <identity|owner-recovery> --vault <vault> --state <private-state> --credentials <new-output> --scope <permission> ...
   hailp vault create --vault <new-vault> --recovery-file <new-secret-file>
   hailp vault verify --vault <private-vault> [--expected-did <did|unbound>]
@@ -34,7 +38,8 @@ const help = `hailp — Hail Protocol account CLI (Bun 1.4+)
   hailp message status <message-id>
   hailp message submit <message-id>
   hailp grant list [--after <grant-id>]
-  hailp grant create <sender-address> --category <category> [--vault <owner-vault>] --output <grant.cose> [--expires-at <unix-seconds> | --no-expiry]
+  hailp grant create <sender-address> --category <category> ... [--vault <owner-vault>] --output <grant.cose> [--expires-at <unix-seconds> | --no-expiry]
+  hailp grant update <grant-id> (--category <category> ... | --uncategorized) --output <revision.cose> [--vault <owner-vault>] [--expires-at <unix-seconds> | --no-expiry] [--refresh-consent] [--sender <verified-address>]
   hailp grant show <grant-id> [--output <new-private-current.cose>]
   hailp grant submit <private-signed-grant.cose>
   hailp grant revoke <grant-id> [--vault <owner-vault> --output <private-revocation.cose>]
@@ -49,7 +54,8 @@ Vault verify/backup/import explicitly unlock both keys using protected secret in
 try {
   const { values, positionals } = parseArgs({ args: Bun.argv.slice(2), allowPositionals: true,
     options: { credentials: { type: "string" }, vault: { type: "string" }, output: { type: "string" },
-      category: { type: "string" }, after: { type: "string" }, "expires-at": { type: "string" },
+      category: { type: "string", multiple:true }, after: { type: "string" }, "expires-at": { type: "string" },
+      "refresh-consent":{type:"boolean"},sender:{type:"string"},
       "no-expiry": { type: "boolean" }, uncategorized: { type: "boolean" },
       provider:{type:"string"},address:{type:"string"},custody:{type:"string"},state:{type:"string"},
       "backup-verified":{type:"boolean"},"recovery-file":{type:"string"},
@@ -97,12 +103,13 @@ try {
       console.info(JSON.stringify(await createAccount(values.provider,values.address,values.custody as "owner-controlled"|"managed",values.vault,values.state,values.credentials)));
     } else {
     const valid = group === "account" && command === "show" && positionals.length === 2 ||
+      group === "binding" && ["show","renew"].includes(command ?? "") && positionals.length === 2 ||
        group === "credential" && ["create", "list", "rotate"].includes(command ?? "") && positionals.length===2 || group==="credential"&&command==="revoke"&&positionals.length===3 ||
       group==="send"&&positionals.length===1||group==="reply"&&positionals.length===2||
       group==="inbox"&&command==="list"&&positionals.length===2||group==="inbox"&&command==="show"&&positionals.length===4||
       group==="message"&&["status","submit"].includes(command ?? "")&&positionals.length===3||
       group === "grant" && command === "list" && positionals.length === 2 ||
-      group === "grant" && ["show", "submit", "revoke", "create"].includes(command ?? "") && positionals.length === 3;
+      group === "grant" && ["show", "submit", "revoke", "create", "update"].includes(command ?? "") && positionals.length === 3;
     if (!valid || group === "account" && (values.vault || values.output) ||
       command === "submit" && (values.vault || values.output) || command === "show" && values.vault) {
       throw new Error("Invalid command/options; use hailp --help");
@@ -111,16 +118,26 @@ try {
       const allowed = command === "create" ? ["credentials", "output", "scope"] : command === "rotate" ? ["credentials", "output"] : command === "list" ? ["credentials", "after"] : ["credentials"];
       if (Object.keys(values).some(key => !allowed.includes(key))) throw new Error("Invalid credential command/options; use hailp --help");
     }
+    if(group==="binding") {
+      const allowed=command==="show"?["credentials"]:["credentials","expires-at","output","vault"];
+      if(Object.keys(values).some(key=>!allowed.includes(key)))throw new Error("Invalid binding command/options");
+    }
     const credential = values.credentials ?? Bun.env.HAILP_CREDENTIAL_FILE;
     if (!credential) throw new Error("Set --credentials or HAILP_CREDENTIAL_FILE");
     const client = await AccountApiClient.fromCredentialFile(credential);
     let result: unknown;
+    if(group!=="grant"&&values.category&&values.category.length!==1)throw new Error("Messages select exactly one category");
     if (group === "account") result = await client.account();
+    else if(group==="binding") {
+      if(command==="show")result=await showBinding(client);
+      else {if(!values.output||!values["expires-at"])throw new Error("Renewal requires --output and explicit --expires-at");
+        result=await renewBinding(client,values.output,Number(values["expires-at"]),values.vault);}
+    }
     else if(group==="send"||group==="reply") {
       if(!values.file||!values.state||(group==="send"&&!values.grant))throw new Error("Send/reply requires file, state and send Grant");
       const until=values["reply-until"]===undefined?undefined:Number(values["reply-until"]);
       if(until!==undefined&&(!Number.isSafeInteger(until)||until<=Math.floor(Date.now()/1000)))throw new Error("Reply deadline must be in the future");
-      result=await sendMessage(client,values.file,values.state,group==="send"?values.grant:undefined,values.category,group==="reply"?command:undefined,until);
+      result=await sendMessage(client,values.file,values.state,group==="send"?values.grant:undefined,values.category?.[0],group==="reply"?command:undefined,until);
     }
     else if(group==="inbox")result=await client.request(command==="list"?`/inbox${values.after?`?after=${encodeURIComponent(values.after)}`:""}`:
       `/inbox/${encodeURIComponent(argument!)}/${encodeURIComponent(positionals[3]!)}`);
@@ -136,6 +153,13 @@ try {
         if(!values.output)throw new Error("Credential create requires --output");
         result=await createCredential(client, values.output, values.scope);
       }
+    }
+    else if(command==="update") {
+      if(!values.output||Boolean(values.category?.length)===Boolean(values.uncategorized)||values["expires-at"]&&values["no-expiry"]||
+        Object.keys(values).some(key=>!["credentials","category","uncategorized","output","vault","expires-at","no-expiry","refresh-consent","sender"].includes(key)))throw new Error("Update requires explicit scope/output and valid expiry options");
+      const expiry=values["no-expiry"]?null:values["expires-at"]===undefined?undefined:Number(values["expires-at"]);
+      if(expiry!==undefined&&expiry!==null&&(!Number.isSafeInteger(expiry)||expiry<0))throw new Error("Invalid Grant expiry");
+      result=await updateGrant(client,argument!,values.category ?? null,values.output,values.vault,expiry,values["refresh-consent"] ?? false,values.sender);
     }
     else if (command === "list") result = await client.request(`/grants${values.after ? `?after=${encodeURIComponent(values.after)}` : ""}`);
     else if (command === "create") {

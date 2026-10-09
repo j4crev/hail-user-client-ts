@@ -16,8 +16,8 @@ export function accountAccessInput(challenge: AccountAccessChallenge): Uint8Arra
     !/^did:plc:[a-z2-7]{24}$/.test(challenge.did) || !["identity", "owner-recovery"].includes(challenge.signer) ||
     typeof challenge.publicKey !== "string" || challenge.publicKey.length > 256 || !/^did:key:z[1-9A-HJ-NP-Za-km-z]+$/.test(challenge.publicKey) ||
     !/^[A-Za-z0-9_-]{43}$/.test(challenge.tokenHash) || !/^[A-Za-z0-9_-]{43}$/.test(challenge.nonce) ||
-    !Array.isArray(challenge.scopes) || !challenge.scopes.length || challenge.scopes.length > 6 || new Set(challenge.scopes).size !== challenge.scopes.length ||
-    challenge.scopes.some(scope => !["account:read", "grants:read", "grants:write", "credentials:write", "messages:read", "messages:write"].includes(scope)) ||
+    !Array.isArray(challenge.scopes) || !challenge.scopes.length || challenge.scopes.length > 7 || new Set(challenge.scopes).size !== challenge.scopes.length ||
+    challenge.scopes.some(scope => !["account:read", "grants:read", "grants:write", "credentials:write", "messages:read", "messages:write", "account:write"].includes(scope)) ||
     !Number.isSafeInteger(challenge.issuedAt) || !Number.isSafeInteger(challenge.expiresAt) ||
     challenge.expiresAt <= challenge.issuedAt || challenge.expiresAt - challenge.issuedAt > 300) throw new Error("Invalid account-access challenge");
   const origin = new URL(challenge.provider);

@@ -156,11 +156,17 @@ function signUserGrant(vault: UserVaultFile, identity: CryptoKey, payload: HailG
   return signPayload("hail.grant", payload, createWebCryptoSigner(payload.key_id, identity));
 }
 
+function signUserBinding(vault: UserVaultFile, identity: CryptoKey, payload: HailAddressBinding): Promise<Uint8Array> {
+  if (!vault.did || payload.did !== vault.did || payload.key_id !== `${vault.did}#hail-identity`) throw new Error("Binding signer DID is not the user vault");
+  return signPayload("hail.address-binding", payload, createWebCryptoSigner(payload.key_id, identity));
+}
+
 export async function unlockUserIdentity(vault: UserVaultFile, secret: Uint8Array):
-  Promise<Pick<UnlockedUserVault, "vault" | "signGrant"> & { signAccountAccess(challenge: AccountAccessChallenge): Promise<Uint8Array> }> {
+  Promise<Pick<UnlockedUserVault, "vault" | "signGrant" | "signAddressBinding"> & { signAccountAccess(challenge: AccountAccessChallenge): Promise<Uint8Array> }> {
   validateVault(vault);
   const identity = await unlockIdentityKey(vault, await cipher(secret));
   return { vault, signGrant: async payload => signUserGrant(vault, identity, payload),
+    signAddressBinding: async payload => signUserBinding(vault, identity, payload),
     async signAccountAccess(challenge) {
       const input = accountAccessInput(challenge);
       if (!vault.did || challenge.did !== vault.did || challenge.signer !== "identity" || challenge.publicKey !== vault.identity.publicDidKey) throw new Error("Login proof does not match this identity");
@@ -283,10 +289,7 @@ export class UnlockedUserVault {
   }
 
   async signAddressBinding(payload: HailAddressBinding): Promise<Uint8Array> {
-    if (!this.vault.did || payload.did !== this.vault.did ||
-      payload.key_id !== `${this.vault.did}#hail-identity`) throw new Error("Binding signer DID is not the user vault");
-    return signPayload("hail.address-binding", payload,
-      createWebCryptoSigner(payload.key_id, this.identity));
+    return signUserBinding(this.vault, this.identity, payload);
   }
 
   signMigrationConsent(consent: UserMigrationConsent): Promise<{

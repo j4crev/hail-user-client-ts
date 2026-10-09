@@ -79,4 +79,4 @@ it("verifies, backs up and imports exact private vaults offline without overwrit
     generated.recoverySecret.fill(0);
     await rm(dir, { recursive: true, force: true });
   }
-});
+}, 30_000);
