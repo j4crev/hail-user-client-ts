@@ -161,12 +161,27 @@ function signUserBinding(vault: UserVaultFile, identity: CryptoKey, payload: Hai
   return signPayload("hail.address-binding", payload, createWebCryptoSigner(payload.key_id, identity));
 }
 
+async function signTransferIntent(vault:UserVaultFile,key:CryptoKey,value:UserTransferGrant|UserTransferCancellation|UserTransferAddressSelection,kind:typeof value.type) {
+  if(!vault.did||value.did!==vault.did||value.type!==kind||value.version!==1||!Number.isSafeInteger(value.issued_at)||!Number.isSafeInteger(value.expires_at)||
+    value.expires_at<=value.issued_at||value.expires_at-value.issued_at>3600)throw new Error("Transfer intent must name this DID and one short-lived approval");
+  if(value.type==="hail.transfer-grant") {
+    if(!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(value.nonce)||
+      value.destination_service_base!==`https://${value.destination_domain}/hail`||value.source_service_base===value.destination_service_base)throw new Error("Transfer grant must select one destination");
+  } else if(value.grant_digest.length!==32||value.type==="hail.transfer-address-selection"&&value.offer_digest.length!==32)throw new Error("Transfer intent must bind the exact transfer grant and Offer");
+  const payloadBytes=encodeDeterministic(value as unknown as HailValue),tag=new TextEncoder().encode(`${value.type}.v1\0`);
+  const input=new Uint8Array(tag.length+payloadBytes.length);input.set(tag);input.set(payloadBytes,tag.length);
+  return {payloadBytes,signature:new Uint8Array(await crypto.subtle.sign("Ed25519",key,bytes(input)))};
+}
+
 export async function unlockUserIdentity(vault: UserVaultFile, secret: Uint8Array):
-  Promise<Pick<UnlockedUserVault, "vault" | "signGrant" | "signAddressBinding"> & { signAccountAccess(challenge: AccountAccessChallenge): Promise<Uint8Array> }> {
+  Promise<Pick<UnlockedUserVault, "vault" | "signGrant" | "signAddressBinding" | "signTransferGrant" | "signTransferCancellation" | "signTransferAddressSelection"> & { signAccountAccess(challenge: AccountAccessChallenge): Promise<Uint8Array> }> {
   validateVault(vault);
   const identity = await unlockIdentityKey(vault, await cipher(secret));
   return { vault, signGrant: async payload => signUserGrant(vault, identity, payload),
     signAddressBinding: async payload => signUserBinding(vault, identity, payload),
+    signTransferGrant:async payload=>signTransferIntent(vault,identity,payload,"hail.transfer-grant"),
+    signTransferCancellation:async payload=>signTransferIntent(vault,identity,payload,"hail.transfer-cancellation"),
+    signTransferAddressSelection:async payload=>signTransferIntent(vault,identity,payload,"hail.transfer-address-selection"),
     async signAccountAccess(challenge) {
       const input = accountAccessInput(challenge);
       if (!vault.did || challenge.did !== vault.did || challenge.signer !== "identity" || challenge.publicKey !== vault.identity.publicDidKey) throw new Error("Login proof does not match this identity");
@@ -239,53 +254,17 @@ export class UnlockedUserVault {
 
   async signTransferGrant(grant: UserTransferGrant): Promise<{
     payloadBytes: Uint8Array; signature: Uint8Array }> {
-    if (!this.vault.did || grant.did !== this.vault.did ||
-      grant.type !== "hail.transfer-grant" || grant.version !== 1 ||
-      !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(grant.nonce) ||
-      !Number.isSafeInteger(grant.issued_at) || !Number.isSafeInteger(grant.expires_at) ||
-      grant.expires_at <= grant.issued_at || grant.expires_at - grant.issued_at > 3600 ||
-      grant.destination_service_base !== `https://${grant.destination_domain}/hail` ||
-      grant.source_service_base === grant.destination_service_base) {
-      throw new Error("Transfer grant must name this DID and one short-lived destination");
-    }
-    const payloadBytes = encodeDeterministic(grant as unknown as HailValue);
-    const tag = new TextEncoder().encode("hail.transfer-grant.v1\0");
-    const input = new Uint8Array(tag.length + payloadBytes.length);
-    input.set(tag); input.set(payloadBytes, tag.length);
-    return { payloadBytes, signature: new Uint8Array(await crypto.subtle.sign("Ed25519", this.identity, bytes(input))) };
+    return signTransferIntent(this.vault,this.identity,grant,"hail.transfer-grant");
   }
 
   async signTransferAddressSelection(selection: UserTransferAddressSelection): Promise<{
     payloadBytes: Uint8Array; signature: Uint8Array }> {
-    if (!this.vault.did || selection.did !== this.vault.did ||
-      selection.type !== "hail.transfer-address-selection" || selection.version !== 1 ||
-      selection.grant_digest.length !== 32 || selection.offer_digest.length !== 32 ||
-      !Number.isSafeInteger(selection.issued_at) || !Number.isSafeInteger(selection.expires_at) ||
-      selection.expires_at <= selection.issued_at || selection.expires_at - selection.issued_at > 3600) {
-      throw new Error("Address selection must bind the user's DID, exact offer and grant");
-    }
-    const payloadBytes = encodeDeterministic(selection as unknown as HailValue);
-    const tag = new TextEncoder().encode("hail.transfer-address-selection.v1\0");
-    const input = new Uint8Array(tag.length + payloadBytes.length);
-    input.set(tag); input.set(payloadBytes, tag.length);
-    return { payloadBytes, signature: new Uint8Array(await crypto.subtle.sign("Ed25519", this.identity, bytes(input))) };
+    return signTransferIntent(this.vault,this.identity,selection,"hail.transfer-address-selection");
   }
 
   async signTransferCancellation(cancellation: UserTransferCancellation): Promise<{
     payloadBytes: Uint8Array; signature: Uint8Array }> {
-    if (!this.vault.did || cancellation.did !== this.vault.did ||
-      cancellation.type !== "hail.transfer-cancellation" || cancellation.version !== 1 ||
-      cancellation.grant_digest.length !== 32 ||
-      !Number.isSafeInteger(cancellation.issued_at) || !Number.isSafeInteger(cancellation.expires_at) ||
-      cancellation.expires_at <= cancellation.issued_at ||
-      cancellation.expires_at - cancellation.issued_at > 3600) {
-      throw new Error("Cancellation must bind the exact user-initiated transfer");
-    }
-    const payloadBytes = encodeDeterministic(cancellation as unknown as HailValue);
-    const tag = new TextEncoder().encode("hail.transfer-cancellation.v1\0");
-    const input = new Uint8Array(tag.length + payloadBytes.length);
-    input.set(tag); input.set(payloadBytes, tag.length);
-    return { payloadBytes, signature: new Uint8Array(await crypto.subtle.sign("Ed25519", this.identity, bytes(input))) };
+    return signTransferIntent(this.vault,this.identity,cancellation,"hail.transfer-cancellation");
   }
 
   async signAddressBinding(payload: HailAddressBinding): Promise<Uint8Array> {

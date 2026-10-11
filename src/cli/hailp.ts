@@ -15,10 +15,18 @@ import { rotateCredential } from "../credential-rotation.js";
 import { loginAccount } from "../account-login.js";
 import { renewBinding,showBinding } from "../binding-renewal.js";
 import { updateGrant } from "../grant-update.js";
+import { transferOffer,transferStatus,cancelTransfer,selectTransferAddress,exportTransferSnapshot,signAccountTransferCutover,completeAccountTransfer } from "../account-transfer.js";
 
 const help = `hailp — Hail Protocol account CLI (Bun 1.4+)
 
   hailp account show
+  hailp account transfer offer --destination <https-provider-origin> --vault <owner-vault> --state <new-private-state>
+  hailp account transfer status
+  hailp account transfer select --username <local-part> --vault <owner-vault> --state <original-private-state>
+  hailp account transfer cancel --vault <owner-vault> --state <original-private-state>
+  hailp account transfer export --state <original-private-state> --output <private-snapshot.json>
+  hailp account transfer sign-cutover --vault <owner-vault> --state <original-private-state> --snapshot <private-snapshot.json> --consent <private-consent.json> --operation <private-operation.json> --binding <private-binding.cose>
+  hailp account transfer complete --state <original-private-state> --snapshot <private-snapshot.json>
   hailp binding show
   hailp binding renew --expires-at <unix-seconds> --output <binding.cose> [--vault <owner-vault>]
   hailp account login --provider <https-origin> --did <did> --signer <identity|owner-recovery> --vault <vault> --state <private-state> --credentials <new-output> --scope <permission> ...
@@ -46,10 +54,13 @@ const help = `hailp — Hail Protocol account CLI (Bun 1.4+)
 
 Use --credentials <private-credential.json> or HAILP_CREDENTIAL_FILE.
 Results are JSON on stdout; errors are JSON on stderr with a nonzero exit.
+Transfer select reserves the destination address and can fence the source, blocking normal source writes.
 Owner-controlled Grant signing reads the vault encryption secret from hidden terminal input or protected stdin.
 It decrypts only the identity key, not the PLC recovery private key.
 It saves signed bytes before submission and reuses them on exact retries.
-Vault verify/backup/import explicitly unlock both keys using protected secret input.`;
+Vault verify/backup/import and transfer sign-cutover explicitly unlock both keys using protected secret input.
+Transfer export advances a fenced source to exported; sign-cutover saves artifacts offline without submitting a PLC operation.
+Transfer complete submits the retained signed cutover, activates the destination and retires the source; destination access needs fresh owner login.`;
 
 try {
   const { values, positionals } = parseArgs({ args: Bun.argv.slice(2), allowPositionals: true,
@@ -62,6 +73,9 @@ try {
       file:{type:"string"},grant:{type:"string"},"reply-until":{type:"string"},"expected-did":{type:"string"},
       scope: { type: "string", multiple: true },
       did: { type: "string" }, signer: { type: "string" },
+      destination:{type:"string"},
+      username:{type:"string"},
+      snapshot:{type:"string"},consent:{type:"string"},operation:{type:"string"},binding:{type:"string"},
       help: { type: "boolean", short: "h" } } });
   if (values.help || !positionals.length) console.info(help);
   else {
@@ -90,6 +104,26 @@ try {
               command === "backup" ? values.output! : values.vault, secret, expectedDid);
           console.info(JSON.stringify(result));
         } finally { secret.fill(0); }
+      }
+    } else if(group==="account"&&command==="transfer") {
+      if(argument==="complete") {
+        if(positionals.length!==3||Object.keys(values).some(key=>!["state","snapshot"].includes(key))||!values.state||!values.snapshot)throw new Error("Transfer completion requires the original private transfer state and snapshot");
+        console.info(JSON.stringify(await completeAccountTransfer(values.state,values.snapshot)));
+      }else if(argument==="sign-cutover") {
+        if(positionals.length!==3||Object.keys(values).some(key=>!["vault","state","snapshot","consent","operation","binding"].includes(key))||
+          !values.vault||!values.state||!values.snapshot||!values.consent||!values.operation||!values.binding)throw new Error("Cutover signing requires the original private transfer state, snapshot, vault and all three output paths");
+        console.info(JSON.stringify(await signAccountTransferCutover(values.vault,values.state,values.snapshot,values.consent,values.operation,values.binding)));
+      }else{
+      const allowed=argument==="status"?["credentials"]:argument==="offer"?["credentials","destination","vault","state"]:
+        argument==="select"?["credentials","username","vault","state"]:argument==="export"?["credentials","state","output"]:["credentials","vault","state"];
+      const credential=values.credentials ?? Bun.env.HAILP_CREDENTIAL_FILE;
+      if(positionals.length!==3||!["offer","status","cancel","select","export"].includes(argument ?? "")||Object.keys(values).some(key=>!allowed.includes(key))||!credential||
+        argument!=="status"&&(!values.state||argument!=="export"&&!values.vault)||argument==="export"&&!values.output||argument==="offer"&&!values.destination||
+        argument==="select"&&!values.username)throw new Error("Transfer commands require explicit source credentials, private review paths and a selection username");
+      const client=await AccountApiClient.fromCredentialFile(credential);
+      const result=argument==="status"?await transferStatus(client):argument==="offer"?await transferOffer(client,values.destination!,values.vault!,values.state!):
+        argument==="select"?await selectTransferAddress(client,values.username!,values.vault!,values.state!):argument==="export"?await exportTransferSnapshot(client,values.state!,values.output!):await cancelTransfer(client,values.vault!,values.state!);
+      console.info(JSON.stringify(result).replace(/hailp_[A-Za-z0-9_-]{43}/g,"[REDACTED]"));
       }
     } else if(group==="account"&&command==="login") {
       if (positionals.length !== 2 || Object.keys(values).some(key => !["provider", "did", "signer", "vault", "state", "credentials", "scope"].includes(key)) ||

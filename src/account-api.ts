@@ -48,7 +48,7 @@ export class AccountApiClient {
     return new AccountApiClient(record.provider, record.token, record.accountId);
   }
 
-  async request(path: string, bytes?: Uint8Array | JsonObject, namespace = "/api/v1/account"): Promise<JsonObject> {
+  async request(path: string, bytes?: Uint8Array | JsonObject, namespace = "/api/v1/account",maxResponse=MAX_RESPONSE): Promise<JsonObject> {
     const headers: Record<string, string> = { Authorization: `Bearer ${this.token}`,
       Accept: "application/json", "Accept-Encoding": "identity", "Cache-Control": "no-store" };
     if (bytes) headers["Content-Type"] = bytes instanceof Uint8Array ? 'application/cose; cose-type="cose-sign1"' : "application/json";
@@ -62,7 +62,7 @@ export class AccountApiClient {
     if (!response.ok) { void response.body?.cancel(); throw new AccountApiError(response.status); }
     const length = response.headers.get("Content-Length");
     if (response.headers.get("Content-Type") !== "application/json" || response.headers.has("Content-Encoding") ||
-      response.headers.has("Location") || length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_RESPONSE)) {
+      response.headers.has("Location") || length !== null && (!/^\d+$/.test(length) || Number(length) > maxResponse)) {
       void response.body?.cancel();
       throw new Error("Provider API returned an invalid response representation");
     }
@@ -75,7 +75,7 @@ export class AccountApiClient {
         const next = await reader.read();
         if (next.done) break;
         size += next.value.length;
-        if (size > MAX_RESPONSE) throw new Error("Provider API response exceeded its limit");
+        if (size > maxResponse) throw new Error("Provider API response exceeded its limit");
         chunks.push(next.value);
       }
     } catch (error) { await reader.cancel().catch(() => {}); throw error; }
