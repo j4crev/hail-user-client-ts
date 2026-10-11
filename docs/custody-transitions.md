@@ -192,6 +192,17 @@ shared DID-profile specification work; this local design does not define them.
 
 ## Return to a former provider
 
+The additive [migration 36 foundation](lifecycle-history-migration.md) now captures
+retired history and separate generation-1 metadata. It does not permit advancement,
+detach a live fence or replace a returning projection; the positive proof below
+remains a gate.
+
+The next [migration 37/38 stage](generation-bound-return.md) now implements and
+proves the stable-owner-identity private-POC return subset, with generation-bound
+admission and collocated state preservation. Managed/custody transitions and
+post-export abandonment remain outside that gate; public historical authority
+is not established by the private return proof.
+
 Treat A → B → A as two new transfers, not an undo of A → B. A generates fresh
 operational keys and a fresh import/Offer/transfer ID; a retired identity key
 is not reused for a managed return. B supplies the latest fenced serialization

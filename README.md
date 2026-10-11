@@ -84,6 +84,10 @@ explicit owner login on the destination; source tokens are never forwarded.
 Managed migration and custody changes have a
 [reference transition design](docs/custody-transitions.md); execution and positive
 return/rollback proof remain roadmap work.
+The [generation-bound private return subset](docs/generation-bound-return.md)
+now proves owner-controlled A → B → A with B's intervening work and fresh A
+access, behind the separate `POC_SELF_SERVICE_RETURN` gate. Post-export
+abandonment/recovery remains separate work.
 
 See the [CLI roadmap](docs/cli-roadmap.md) for the implemented baseline,
 prioritized milestones and acceptance conditions for remaining work.

@@ -302,11 +302,29 @@ Fresh destination login is deliberate and selects its own scopes. It uses the
 existing `POC_ACCOUNT_ACCESS=true` gate on that provider and a new provider-local
 token; source tokens are neither exported nor copied. The source can retain
 fenced/retired history but cannot resume normal writes. Managed migration, custody
-changes, return to a former provider and post-export rollback remain separate
+changes and post-export rollback remain separate
 unenabled work; their [transition and recovery design](custody-transitions.md)
 defines owner authority, historical-evidence preservation and implementation
 proof gates. The recovery private key is unlocked only for reviewed cutover
 signing, not Offer/selection/cancellation/completion.
+
+### Return to a former provider (local opt-in)
+
+The [generation-bound return implementation](generation-bound-return.md) now
+proves owner-controlled A → B → A on the private PLC. The returning provider
+requires `POC_SELF_SERVICE_RETURN=true` and the transfer gate on migration 38.
+All serving processes/workers must run the generation-aware runtime before
+advancement; this gate is not enabled on the live hosts.
+
+Use the same transfer commands with B's current credential, a new transfer state,
+A as the destination and a fresh available username on A. Identity/recovery keys
+must remain unchanged. Completion preserves A's immutable retired history but
+installs B's latest working state under A's next serving generation. It does not
+reopen A's old export, tokens, challenges or leases. Establish a new A credential
+with explicit owner login after completion. Old names/bindings remain history,
+not automatically revived current aliases. Missing/conflicting retained evidence
+blocks activation rather than being discarded. This is a forward return transfer,
+not a post-export rollback or managed-custody conversion.
 
 ## Independent vault backup and restoration
 

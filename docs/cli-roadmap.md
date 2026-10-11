@@ -219,14 +219,26 @@ See [workflow and remaining boundaries](cli-workflows.md#owner-controlled-transf
   independent owner-recovery authorization, fresh identity authority, preserved
   historical evidence and separately versioned profiles. Runtime execution stays
   disabled until historical-key, lifecycle-generation and custody proofs pass.
-- [ ] Prove return to a former provider with retained retired history and
+- [x] Prove return to a former provider with retained retired history and
   coordinated post-export recovery/rollback before enabling those paths.
-  The design specifies retained lifecycle history, generation-bound workers and
-  credentials, protective PLC operations for never-active abandonment, and a
-  latest-state reverse transfer once the destination has served work. Import
-  invalidation alone cannot cancel a replayable signed PLC operation. Positive
-  return/recovery and race proofs remain unimplemented; existing negative guards
-  are not counted as completion.
+  The local [migration 36 foundation](lifecycle-history-migration.md) preserves
+  immutable retired transfer history without changing signed v2/account shapes;
+  its expand-stage generation-1 constraint and guarded rollback remain documented.
+  [Migrations 37/38 and the private owner-controlled return proof](generation-bound-return.md)
+  now bind credentials/challenges/worker leases and admitted operations to a
+  serving generation. A → B → A preserves B's work, acknowledged publications,
+  status payloads and collocated ownership while rejecting old access/leases and
+  a request paused across the move. The return gate preserves identity/recovery
+  and uses a fresh available username.
+  The [migration-39 coordinated recovery proof](post-export-recovery.md) now covers
+  staged never-active abandonment in both PLC race orders, import-row submission
+  barriers, exact invalidation/release/resumption receipts, delayed-operation
+  rejection through official PLC priority validation, preserved source state and
+  generation advancement/fresh login. Together with the stable-owner private
+  return proof, this completes the local owner-controlled proof goal. Public
+  resumption routes/CLI enabling, broader restore ceremonies, managed execution
+  and production finality remain their separate gates. The coordinator is internal
+  and migration 39 is not deployed.
 
 **Acceptance:** one active owner remains; accepted message/status/outbox
 responsibilities survive; expiry alone never releases an exported fence or
