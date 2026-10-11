@@ -43,8 +43,9 @@ expire after 30 days; rotate while valid or use explicit owner proof for new
 access after expiry. Messages accept text
 files up to 64 KiB; Grant/inbox lists return at most 50 items. The reference
 vault uses one encryption secret for both key records; routine Grant commands
-now unlock only identity (milestone 2). Public onboarding,
-binding renewal and managed migration are not implemented. Post-expiry owner
+now unlock only identity (milestone 2). Public onboarding and managed migration
+are not implemented. Binding renewal and stable-key Grant updates are deployed
+and verified on the private POC at migration 35. Post-expiry owner
 login/recovery is deployed and verified on the private POC with migration 34;
 see the [lifecycle release evidence](lifecycle-release.md).
 
@@ -140,16 +141,17 @@ PLC or independent production recovery evidence.
 - [x] Implement signed Address Binding renewal, expiry visibility/reminders and
   safe publication retries; retain the current 90-day maximum unless the
   specification is explicitly revised.
-  Local `binding show/renew` slice with identity-only/explicit managed signing,
+  `binding show/renew` with identity-only/explicit managed signing,
   seven-day reminder metadata, hosted-before-selected publication and exact
   artifacts/retries. [Contract and proof](binding-renewal.md). Migration 35 adds
   deliberate `account:write` authority without upgrading old credentials.
-  Provider-domain renewal only; not deployed. Grant revision work is recorded below.
+  Provider-domain renewal only; [private-POC release verified](milestone4-release.md).
 - [x] Add active Grant updates: category changes, explicit renewal and consent
   refresh. Support multiple selected categories without introducing wildcards.
-  Local `grant update` with repeated categories, reviewed expiry and explicit
+  `grant update` with repeated categories, reviewed expiry and explicit
   consent refresh, identity-only/managed signatures and retained exact artifacts.
-  [Contract and proof](grant-revisions.md); not deployed.
+  [Contract and proof](grant-revisions.md); both custody profiles passed
+  [real HTTPS cross-provider revision publication](milestone4-release.md).
 - [x] Require fresh verified evidence/consent for expanded authorization; retain
   prior consent for restrictions/revocation without relying on sender availability.
   Expansion/scope switches/expiry extension reverify both evidence objects;
@@ -166,21 +168,65 @@ restrictions remain unilateral; conflicting revisions never overwrite signed
 history. Existing DID-bound Grants are not transferred or revoked merely
 because an address binding expires or an address changes holder.
 
-**Acceptance status:** binding renewal and stable-key Grant updates/consent paths
-pass focused local checks. Migration-35/client/provider release and real-host
-verification are pending under the no-deploy constraint. Historical-key policy is
-defined; identity-rotation reconciliation is intentionally not enabled.
+**Acceptance status:** passed for the private POC. Migration 35 preserved both
+restored live databases and their credential scopes; individual rollout and real
+HTTPS checks passed for both custody profiles on both origins, including all five
+cross-provider revision acknowledgements. PLC genesis logs were unchanged.
+See [release evidence/boundaries](milestone4-release.md). Historical-key policy is
+defined; identity-rotation reconciliation remains disabled.
 
 ### 5. Bring transfer and custody transitions into hailp
 
-- [ ] Integrate the existing owner-controlled reference transfer tools into
+**Local owner-controlled flow:** `hailp account transfer offer/status/select/cancel/export/sign-cutover/complete` now
+uses authenticated source APIs and identity-only approval/selection/cancellation signing.
+Export retrieves a signed, account/Offer-bound immutable source snapshot and
+advances the fence to exported. Offline cutover signing explicitly unlocks both
+vault keys and retains the exact PLC operation, consent and destination binding;
+the transfer state pins snapshot digest and output paths before signing.
+Completion stages exact signed artifacts, submits the retained PLC operation,
+publishes/verifies the destination binding, activates the destination and retires
+the source using a retained signed activation receipt. Fresh destination access
+uses the existing explicit identity-key login with provider-local credentials.
+Offers are destination-origin-confirmed and locally signature/digest-checked;
+private state retains exact bytes across ambiguous responses. Explicit address
+selection can fence the source and retries the same signed selection/reservation.
+Cancellation retains a signed no-fence receipt, forwards it without bearer
+credentials and reports success only after target cleanup acknowledgement.
+Provider routes are opt-in behind `POC_SELF_SERVICE_TRANSFER=true` on the pinned
+private PLC profile. No schema change is required. This slice is not deployed.
+Client regression checks and PostgreSQL provider-route/cancellation/fence tests
+pass. The full private-POC transfer proof now exercises the account client through
+address selection, including a lost response after the real source fence,
+authenticated export, actual `hailp` cutover signing and API-driven completion
+through activation, retirement and fresh destination login. Export retries recover a lost response after durable
+export; changed cutover paths and tampered snapshots are rejected, and the legacy
+cutover command still reuses the same signed artifacts. Coordinated cancellation
+also survives a lost target acknowledgement without resubmitting source cancellation.
+Completion recovers lost PLC, activation and retirement responses using the same
+signed artifacts, including after accepted consent expiry. An expired consent
+cannot initiate a fresh PLC write; it never releases the source fence or reservation.
+See [workflow and remaining boundaries](cli-workflows.md#owner-controlled-transfer-offer-review-and-source-cancellation).
+
+- [x] Integrate the existing owner-controlled reference transfer tools into
   cohesive API-driven commands for Offer review, address selection, status,
   exact cutover signing and completion. Example: `hailp account transfer …`.
-- [ ] Design explicit owner-controlled ↔ managed custody changes and managed
+  Implemented for the pinned private-POC profile; public federation trust remains
+  a separate gate, and the milestone's custody/return/rollback work below remains open.
+- [x] Design explicit owner-controlled ↔ managed custody changes and managed
   provider migration, including removal/rotation of an old provider's identity
   authority and preservation of Grant/binding historical evidence.
+  See [custody-transition/managed-migration design](custody-transitions.md):
+  independent owner-recovery authorization, fresh identity authority, preserved
+  historical evidence and separately versioned profiles. Runtime execution stays
+  disabled until historical-key, lifecycle-generation and custody proofs pass.
 - [ ] Prove return to a former provider with retained retired history and
   coordinated post-export recovery/rollback before enabling those paths.
+  The design specifies retained lifecycle history, generation-bound workers and
+  credentials, protective PLC operations for never-active abandonment, and a
+  latest-state reverse transfer once the destination has served work. Import
+  invalidation alone cannot cancel a replayable signed PLC operation. Positive
+  return/recovery and race proofs remain unimplemented; existing negative guards
+  are not counted as completion.
 
 **Acceptance:** one active owner remains; accepted message/status/outbox
 responsibilities survive; expiry alone never releases an exported fence or

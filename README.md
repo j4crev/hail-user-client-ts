@@ -34,10 +34,11 @@ before retrying an interrupted transfer.
 ### Routine signing and recovery
 
 `unlockUserIdentity()` decrypts and validates only the `#hail-identity` key and
-exposes Grant signing. Owner-controlled Grant creation/revocation, including
+exposes Grant, binding, account-access and transfer approval/selection/cancellation
+signing. Owner-controlled Grant creation/revocation, including
 the legacy POC Grant commands, use this path: they never decrypt or import the
 top PLC recovery key. `unlockUserVault()` still explicitly loads both keys for
-reviewed onboarding, backup verification and transfer operations.
+reviewed onboarding, backup verification and PLC transfer cutover operations.
 
 The v1 vault format and its existing encryption secret are unchanged. Both
 encrypted key records still share that secret, so this is process-memory
@@ -65,7 +66,24 @@ profiles. Explicit owner-key login after credential expiry, inventory/scoped
 issuance and rotation are deployed to both POC providers with migration 34 and
 `POC_ACCOUNT_ACCESS=true`; see [recovery workflows](docs/account-access-recovery.md)
 and [release evidence](docs/lifecycle-release.md).
-Public-PLC onboarding and binding renewal remain separate work.
+Provider-domain binding renewal and stable-key Grant updates are deployed with
+migration 35; see [milestone-4 release evidence](docs/milestone4-release.md).
+Public-PLC onboarding and historical-key reconciliation remain separate work.
+
+The local milestone-5 slice adds `hailp account transfer offer/status/select/cancel`
+for owner-controlled Offer review, explicit address selection/source fencing and
+coordinated pre-fence cancellation. It requires
+the provider's opt-in `POC_SELF_SERVICE_TRANSFER=true` gate; see
+[transfer workflows](docs/cli-workflows.md#owner-controlled-transfer-offer-review-and-source-cancellation).
+`transfer export` retrieves the source's signed snapshot through the authenticated
+API; offline `transfer sign-cutover` reuses the reviewed full-vault signer and
+retains the exact operation, consent and binding. `transfer complete` submits
+these signed artifacts, activates the destination and retires the source after
+verifying its signed activation receipt. Fresh destination credentials use
+explicit owner login on the destination; source tokens are never forwarded.
+Managed migration and custody changes have a
+[reference transition design](docs/custody-transitions.md); execution and positive
+return/rollback proof remain roadmap work.
 
 See the [CLI roadmap](docs/cli-roadmap.md) for the implemented baseline,
 prioritized milestones and acceptance conditions for remaining work.
@@ -128,8 +146,10 @@ Explicit managed accounts request provider identity signatures instead; there
 is no unsigned blocking or automatic custody fallback.
 
 Requests use the credential file's origin with certificate validation, no
-redirects and a 20-second request deadline. Responses are bounded at 512 KiB;
-signed Grants at 256 KiB. Moving providers requires a new provider-local
+redirects and a 20-second request deadline. Routine responses are bounded at 512 KiB;
+the explicit transfer snapshot export permits at most 100 MB of JSON containing
+a manifest bounded at 64 MiB.
+Signed Grants are bounded at 256 KiB. Moving providers requires a new provider-local
 credential, not forwarding a token to an endpoint supplied by a redirect.
 Keep vaults, credentials and signed artifacts in private storage outside Git.
 

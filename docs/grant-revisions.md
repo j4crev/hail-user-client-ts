@@ -1,8 +1,9 @@
-# Active Grant updates and consent refresh — local milestone-4 slice
+# Active Grant updates and consent refresh — milestone-4 slice
 
-This slice is local and **not deployed**. It builds on the local migration-35
-[binding renewal](binding-renewal.md) work; Grant revisions themselves need no
-new schema migration. Live providers remain at migration 34.
+This slice is deployed to both private-POC providers with migration-35
+[binding renewal](binding-renewal.md); Grant revisions themselves need no new
+schema migration. [Release evidence](milestone4-release.md) records real HTTPS
+checks for both custody profiles and cross-provider acknowledgements.
 
 ## Explicit selection and signed revisions
 
@@ -98,7 +99,7 @@ cover signature, predecessor and restriction-consent enforcement.
 
 The [historical-key decision](grant-key-reconciliation.md) is defined separately;
 this implementation refuses new signer epochs rather than guessing historical
-authority. No deployment was performed.
+authority. Historical-key execution is not enabled by this release.
 
 Recorded gates: **19 focused PostgreSQL/HTTPS integrations**, **108 provider
 tests** without DB environment (**63 integrations skipped** in that run),

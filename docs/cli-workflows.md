@@ -1,7 +1,9 @@
 # CLI workflows: people and agents
 
 These commands use authenticated HTTPS APIs, not provider SSH/database access.
-Both POC VPS providers now run migration 34. The October 9
+Both POC VPS providers now run migration 35. The October 10
+[milestone-4 release](milestone4-release.md) verifies binding renewal and stable-
+key Grant revisions on both origins. The October 9
 [lifecycle release](lifecycle-release.md) records expiry/recovery, rotation,
 inventory and scoped issuance for both custody profiles on each real HTTPS host.
 The [earlier release](cli-release-rollout.md) records initial signup smoke.
@@ -67,7 +69,7 @@ revocation time and active/expired/revoked status. It never returns tokens or
 token hashes. Read-only credentials cannot inventory, issue or revoke credentials.
 
 Available scopes are `account:read`, `grants:read`, `grants:write`,
-`credentials:write`, `messages:read` and `messages:write`. Omit write scopes and
+`credentials:write`, `messages:read`, `messages:write` and `account:write`. Omit write scopes and
 `credentials:write` for a reader. An explicitly delegated credential manager can
 issue only its own scopes or a subset; it cannot acquire missing permissions.
 CLI issuance also reads the account, so its caller needs `account:read`.
@@ -150,6 +152,162 @@ fences fail closed. Expired attempts need a deliberate new state/output and
 secret, not an automatic new nonce. No PLC operation, Address Binding renewal or
 custody change is performed. See [verification evidence](account-access-verification.md).
 
+## Owner-controlled transfer: Offer review and source cancellation
+
+This local milestone-5 slice requires the provider operator to enable
+`POC_SELF_SERVICE_TRANSFER=true` on the pinned private PLC profile. It is not
+deployed to the POC hosts. Use the original source credential with `account:read`
+and explicit `account:write` for mutations; status needs only `account:read`.
+Managed/custodial accounts and fresh migration-fenced source writes are rejected.
+
+```bash
+hailp account transfer offer --credentials /secure/source.credential.json \
+  --destination https://hailproto.dev --vault /secure/account.vault.json \
+  --state /secure/transfer.json
+hailp account transfer status --credentials /secure/source.credential.json
+# Selecting an address permits the target to submit the final request/fence:
+hailp account transfer select --credentials /secure/source.credential.json \
+  --username moved-name \
+  --vault /secure/account.vault.json --state /secure/transfer.json
+# Cancel only before the source fence, retaining the original private state:
+hailp account transfer cancel --credentials /secure/source.credential.json \
+  --vault /secure/account.vault.json --state /secure/transfer.json
+```
+
+The destination must be a distinct canonical public HTTPS domain origin without
+a port/path. Offer preparation signs one approval, at most one hour long, using
+only the identity key. The source retains the exact approval before contacting
+the destination; its existing delivery worker retries an ambiguous invitation.
+The CLI reports `pending: true` until a destination-origin-confirmed Offer is
+retained. Repeat the same command, destination and mode-`0600` state path to
+review it; the CLI never silently signs a replacement approval. It checks the
+Offer signature, DID/source/destination/nonce, approval digest and expiry, and
+retains the exact Offer for subsequent review. Changed retained Offers fail.
+
+`select` proceeds with the transfer: reserving the name also lets the
+destination publish its final request, which can fence the source and block
+normal source writes. The CLI
+rechecks the exact source-retained Offer, signs the selected local part and
+grant/Offer digests with identity only, and saves the selection before submission.
+It verifies and saves the destination-signed reservation receipt. Exact retries
+reuse the original signature and address, including after an ambiguous response
+that already fenced the source. Changed addresses/Offers and stale selections
+fail without signing replacements. `requestAcknowledged: false` (HTTP 202)
+means reservation retained but source handoff unconfirmed; it is not permission
+to choose a new name. `true` (HTTP 200) means the final request was acknowledged,
+not that cutover or destination activation completed.
+
+Status describes source-retained state: `none`, `invitation-pending`,
+`offer-ready`, `expired`, `expired-unresolved`, `cancelled`, `fenced`, `exported`
+or `retired`. An expired origin-confirmed approval is unresolved, not permission
+to drop a reservation or source fence. Keep the original state after expiry.
+
+Cancellation signs and saves one exact identity-key cancellation before sending
+it. Repeat with the same state after a lost response while that signature remains
+current. The CLI verifies and retains the source's signed no-fence receipt and
+its public signer key before forwarding the exact cancellation/receipt to the
+destination, without source bearer credentials. `cancelled: true,
+targetAcknowledged: true` is returned only after target HTTP 204 acknowledgement.
+If cleanup fails or its response is lost, the command errors with source
+cancellation retained; repeat with the same state. It does not resubmit or
+replace source cancellation after a receipt is saved. Forwarding may resume
+after the cancellation's one-hour lifetime while the source receipt remains
+valid (up to seven days), as the target protocol permits. Original source account
+access is still required. Older state without the retained public signer key
+is reverified through the source while its cancellation is current. Cancellation
+after a source fence requires the reviewed rollback/recovery path.
+
+### Export and exact offline cutover signing
+
+After source status is `fenced`, export the immutable signed snapshot with the
+original credential and transfer state:
+
+```bash
+hailp account transfer export --credentials /secure/source.credential.json \
+  --state /secure/transfer.json --output /secure/source-snapshot.json
+# Offline: explicitly unlocks both identity and top PLC recovery keys.
+hailp account transfer sign-cutover --vault /secure/account.vault.json \
+  --state /secure/transfer.json --snapshot /secure/source-snapshot.json \
+  --consent /secure/cutover-consent.json --operation /secure/plc-operation.json \
+  --binding /secure/destination-binding.cose
+```
+
+Export requires `account:read` and `account:write`, a matching fenced/exported
+owner-controlled source, and a saved destination reservation. It advances the
+source to `exported`; retrying the same transfer returns the exact stored snapshot.
+The client checks its signature/digest and binds DID, account, transfer ID,
+source/destination and destination keys to the retained Offer before saving a
+mode-`0600` output. Existing different outputs are rejected. The export response
+is bounded at 100 MB JSON, with a 64 MiB decoded manifest limit; routine account
+responses retain their 512 KiB bound.
+
+`sign-cutover` needs no bearer credential or network access. It verifies the
+retained signed approval, selection and reservation, including the exact address
+and selection/Offer digests. These are historical accepted artifacts after
+fencing; their expiry does not undo an exported transfer. It verifies the snapshot
+against them, pins its digest and all three output paths in the private transfer
+state, then explicitly unlocks both vault keys. The shared private-POC signer
+checks custody and original PLC evidence against the vault, replaces only the
+old provider's rotation/messaging authority and service endpoint, and preserves
+the owner's recovery/identity authority. It saves the exact PLC operation before
+the consent committing to its hash, then the destination binding. Repeat the
+same state/snapshot/output paths after interruption. Changed paths, competing
+operations and expired retained consent fail without signing replacements.
+Missing completed artifacts or incomplete retained operation/consent sets require
+restoring the originals; the CLI does not replace them with new signatures.
+The consent is valid for one hour; expiry requires reviewed recovery, not a new
+operation hidden in a retry. The legacy `poc:sign-cutover` entry point still uses
+this signer. This flow remains restricted to private-POC custody evidence.
+
+### Complete the transfer and establish destination access
+
+```bash
+# Uses the retained signed artifacts; no credential or vault unlock is needed.
+hailp account transfer complete --state /secure/transfer.json \
+  --snapshot /secure/source-snapshot.json
+# Explicit fresh destination login after activation/retirement:
+hailp account login --provider https://hailproto.dev --did "$owner_did" \
+  --signer identity --vault /secure/account.vault.json \
+  --state /secure/destination-login.json --credentials /secure/destination.credential.json \
+  --scope account:read --scope grants:read --scope messages:read
+export HAILP_CREDENTIAL_FILE=/secure/destination.credential.json
+hailp account show
+```
+
+`complete` reads the output paths and exact operation CID retained by cutover
+signing, verifies the snapshot/consent/selection bindings, and sends only the
+signed snapshot, consent, operation and binding to the selected destination's
+private-POC completion endpoint. It can stage the import, submit the exact PLC
+operation, publish and fetch/verify the destination address, then
+activate the destination. It never unlocks either private key or forwards source
+bearer credentials. The signed artifacts are authorization to carry out the
+already approved transfer; the endpoint does not accept a bearer as substitute
+owner approval. Request JSON is bounded at 100 MB; completion receipts at 16 KiB.
+
+The CLI verifies and saves the destination's activation receipt against the exact
+snapshot/address/binding before sending it to the source retirement endpoint.
+Only source HTTP 204 acknowledgement yields `destinationActive: true,
+sourceRetired: true`. A lost activation/retirement response or failed address
+verification is incomplete: keep every original private file and repeat the
+same command. The destination checks exact retained bytes before resuming staged
+or active imports; it does not re-stage against a PLC source that has moved.
+Changed artifacts and invalidated imports fail. After durable staging, consent
+expiry cannot permit a fresh PLC write, but observation of the already committed
+exact operation permits completion recovery. Neither expiry nor an HTTP error
+releases a source fence or submitted reservation. A destination-active/source-
+retirement-unconfirmed error means activation succeeded and retirement still
+needs the retained signed receipt, not a second cutover operation.
+
+Fresh destination login is deliberate and selects its own scopes. It uses the
+existing `POC_ACCOUNT_ACCESS=true` gate on that provider and a new provider-local
+token; source tokens are neither exported nor copied. The source can retain
+fenced/retired history but cannot resume normal writes. Managed migration, custody
+changes, return to a former provider and post-export rollback remain separate
+unenabled work; their [transition and recovery design](custody-transitions.md)
+defines owner authority, historical-evidence preservation and implementation
+proof gates. The recovery private key is unlocked only for reviewed cutover
+signing, not Offer/selection/cancellation/completion.
+
 ## Independent vault backup and restoration
 
 These commands are offline and do not require credentials or provider access.
@@ -189,10 +347,10 @@ See the [restoration evidence](vault-restoration.md) and
 [device-keystore definition](device-keystore.md). Independent offline copies are
 still required; merely duplicating files on one disk is not a device-loss backup.
 
-## Address Binding renewal (local, not deployed)
+## Address Binding renewal
 
 Migration 35 adds `account:write` for explicit account mutation; existing
-migration-34 credentials keep their scopes. With the matching local provider:
+migration-34 credentials keep their scopes. Both POC providers support:
 
 ```bash
 hailp binding show
@@ -206,12 +364,11 @@ for exact retries. The deadline must extend expiry without exceeding the unchang
 There is no automatic signing/renewal. Renewal of an expired binding still requires
 valid account authority and the current identity signer. Historical representations
 and DID-bound Grants stay intact. See [binding renewal](binding-renewal.md) for
-publication, failure and scope details. Live POC providers remain at migration 34.
+publication, failure and scope details; see the [real-host release proof](milestone4-release.md).
 
 ## Grants
 
-Active updates and multi-category creation are now implemented in the **local,
-not-deployed milestone-4 slice**:
+Active updates and multi-category creation are deployed to both POC providers:
 
 ```bash
 hailp grant update "$grant_id" --category receipts --category security \
