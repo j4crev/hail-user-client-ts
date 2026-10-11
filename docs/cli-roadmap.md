@@ -177,7 +177,7 @@ defined; identity-rotation reconciliation remains disabled.
 
 ### 5. Bring transfer and custody transitions into hailp
 
-**Local owner-controlled flow:** `hailp account transfer offer/status/select/cancel/export/sign-cutover/complete` now
+**Deployed private-POC owner-controlled flow:** `hailp account transfer offer/status/select/cancel/export/sign-cutover/complete` now
 uses authenticated source APIs and identity-only approval/selection/cancellation signing.
 Export retrieves a signed, account/Offer-bound immutable source snapshot and
 advances the fence to exported. Offline cutover signing explicitly unlocks both
@@ -193,7 +193,8 @@ selection can fence the source and retries the same signed selection/reservation
 Cancellation retains a signed no-fence receipt, forwards it without bearer
 credentials and reports success only after target cleanup acknowledgement.
 Provider routes are opt-in behind `POC_SELF_SERVICE_TRANSFER=true` on the pinned
-private PLC profile. No schema change is required. This slice is not deployed.
+private PLC profile. Both providers run migration 39 with transfer/return enabled;
+see [restored-copy rehearsal and real HTTPS release evidence](milestone5-release.md).
 Client regression checks and PostgreSQL provider-route/cancellation/fence tests
 pass. The full private-POC transfer proof now exercises the account client through
 address selection, including a lost response after the real source fence,
@@ -211,7 +212,7 @@ See [workflow and remaining boundaries](cli-workflows.md#owner-controlled-transf
   cohesive API-driven commands for Offer review, address selection, status,
   exact cutover signing and completion. Example: `hailp account transfer …`.
   Implemented for the pinned private-POC profile; public federation trust remains
-  a separate gate, and the milestone's custody/return/rollback work below remains open.
+  a separate gate, and managed/custody execution remains distinct from this proof.
 - [x] Design explicit owner-controlled ↔ managed custody changes and managed
   provider migration, including removal/rotation of an old provider's identity
   authority and preservation of Grant/binding historical evidence.
@@ -238,7 +239,7 @@ See [workflow and remaining boundaries](cli-workflows.md#owner-controlled-transf
   return proof, this completes the local owner-controlled proof goal. Public
   resumption routes/CLI enabling, broader restore ceremonies, managed execution
   and production finality remain their separate gates. The coordinator is internal
-  and migration 39 is not deployed.
+  and is included in the deployed migration-39 image without public recovery routes.
 
 **Acceptance:** one active owner remains; accepted message/status/outbox
 responsibilities survive; expiry alone never releases an exported fence or

@@ -1,7 +1,9 @@
 # CLI workflows: people and agents
 
 These commands use authenticated HTTPS APIs, not provider SSH/database access.
-Both POC VPS providers now run migration 35. The October 10
+Both POC VPS providers now run migration 39. The October 11
+[milestone-5 release](milestone5-release.md) verifies HTTPS forward/return transfer,
+generation-bound access and message/status continuity. The October 10
 [milestone-4 release](milestone4-release.md) verifies binding renewal and stable-
 key Grant revisions on both origins. The October 9
 [lifecycle release](lifecycle-release.md) records expiry/recovery, rotation,
@@ -154,9 +156,8 @@ custody change is performed. See [verification evidence](account-access-verifica
 
 ## Owner-controlled transfer: Offer review and source cancellation
 
-This local milestone-5 slice requires the provider operator to enable
-`POC_SELF_SERVICE_TRANSFER=true` on the pinned private PLC profile. It is not
-deployed to the POC hosts. Use the original source credential with `account:read`
+This milestone-5 slice enables `POC_SELF_SERVICE_TRANSFER=true` on both deployed
+private-POC providers. Use the original source credential with `account:read`
 and explicit `account:write` for mutations; status needs only `account:read`.
 Managed/custodial accounts and fresh migration-fenced source writes are rejected.
 
@@ -314,7 +315,8 @@ The [generation-bound return implementation](generation-bound-return.md) now
 proves owner-controlled A → B → A on the private PLC. The returning provider
 requires `POC_SELF_SERVICE_RETURN=true` and the transfer gate on migration 38.
 All serving processes/workers must run the generation-aware runtime before
-advancement; this gate is not enabled on the live hosts.
+advancement. Both live providers now run migration 39 with this gate enabled;
+see [the real HTTPS round-trip proof](milestone5-release.md).
 
 Use the same transfer commands with B's current credential, a new transfer state,
 A as the destination and a fresh available username on A. Identity/recovery keys

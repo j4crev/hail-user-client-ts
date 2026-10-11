@@ -1,8 +1,8 @@
 # Generation-bound operation and owner-controlled return
 
-Status: local private-POC implementation and proof; not deployed. This builds on
-[migration 36's history foundation](lifecycle-history-migration.md). Live hosts
-remain at migration 35. Managed/custody changes and post-export abandonment are
+Status: deployed private-POC implementation with [real HTTPS proof](milestone5-release.md).
+This builds on [migration 36's history foundation](lifecycle-history-migration.md).
+Live hosts run migration 39. Managed/custody changes and public post-export recovery are
 still separate gated work.
 
 ## Generation enforcement — migration 37
@@ -60,6 +60,8 @@ snapshot must preserve known immutable envelope, Grant, consent, PLC, body and
 status evidence; it cannot omit or rewind delivery/reply/publication obligations,
 received statuses, terminal states or acknowledged checkpoints. Missing retained
 evidence blocks the move rather than being filled from an older snapshot.
+Grant arrival time is a receiver-local observation, not a signed checkpoint field;
+its prior value remains in the immutable archive when a grantee replica differs.
 
 After the exact owner-signed PLC operation and destination binding verify, one
 account-locked transaction detaches archived legacy fence/export/authorization

@@ -1,8 +1,8 @@
 # Lifecycle history foundation — local migration 36
 
-Status: implemented and locally verified; not deployed. This is the expand stage
+Status: deployed as part of the [migration-39 release](milestone5-release.md). This is the expand stage
 of the [custody/return design](custody-transitions.md), not a return-transfer or
-post-export rollback implementation. Live POC providers remain on migration 35.
+post-export rollback implementation. Live POC providers run migration 39.
 
 ## Preserved shapes and authority
 

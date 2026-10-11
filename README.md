@@ -70,7 +70,7 @@ Provider-domain binding renewal and stable-key Grant updates are deployed with
 migration 35; see [milestone-4 release evidence](docs/milestone4-release.md).
 Public-PLC onboarding and historical-key reconciliation remain separate work.
 
-The local milestone-5 slice adds `hailp account transfer offer/status/select/cancel`
+The deployed private-POC milestone-5 slice adds `hailp account transfer offer/status/select/cancel`
 for owner-controlled Offer review, explicit address selection/source fencing and
 coordinated pre-fence cancellation. It requires
 the provider's opt-in `POC_SELF_SERVICE_TRANSFER=true` gate; see
@@ -83,11 +83,13 @@ verifying its signed activation receipt. Fresh destination credentials use
 explicit owner login on the destination; source tokens are never forwarded.
 Managed migration and custody changes have a
 [reference transition design](docs/custody-transitions.md); execution and positive
-return/rollback proof remain roadmap work.
+managed proof remain roadmap work.
 The [generation-bound private return subset](docs/generation-bound-return.md)
 now proves owner-controlled A → B → A with B's intervening work and fresh A
-access, behind the separate `POC_SELF_SERVICE_RETURN` gate. Post-export
-abandonment/recovery remains separate work.
+access, behind the enabled `POC_SELF_SERVICE_RETURN` gate on both migration-39
+providers. See [milestone-5 HTTPS release evidence](docs/milestone5-release.md).
+Post-export abandonment/recovery is implemented as an internal proof coordinator,
+not a public command or route.
 
 See the [CLI roadmap](docs/cli-roadmap.md) for the implemented baseline,
 prioritized milestones and acceptance conditions for remaining work.
