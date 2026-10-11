@@ -12,6 +12,57 @@ The [earlier release](cli-release-rollout.md) records initial signup smoke.
 Self-service signup is restricted to the pinned private PLC profile;
 neither custody profile establishes public-PLC/independent-monitor guarantees.
 
+## Developer and agent operation (contract v1)
+
+Install the versioned Bun CLI or compiled `hailp` using the
+[pinned installation recipe](cli-installation.md). `hailp --version` prints
+`0.1.0`; `hailp <command> --help` shows its options without credentials/network.
+Unknown, misplaced or repeated nonrepeatable options fail before side effects.
+`--category` and `--scope` are deliberately repeatable.
+
+Results are one JSON object on stdout with additive `cliContractVersion: 1`.
+Errors are one JSON object on stderr, with a stable code and actionable message;
+HTTP errors include status/retry metadata. Secret prompts go to stderr; protected
+stdin still works for noninteractive signing. Exit 0 means the requested command
+completed, not that a generic message receipt proves acceptance/delivery. See the
+[API/CLI contract](cli-contract.md) for exact output and compatibility rules.
+
+Select a private credential deliberately. `--credentials` overrides
+`HAILP_CREDENTIAL_FILE`; optional origin/account assertions fail locally if they
+do not match the file. They cannot retarget its token:
+
+```bash
+hailp account show --credentials /secure/account-a.credential.json \
+  --provider https://hailproto.app --account-id "$account_a_id"
+hailp account show --credentials /secure/account-b.credential.json \
+  --provider https://hailproto.dev --account-id "$account_b_id"
+```
+
+Read multiple pages with a deliberate bound; the normal default is still one
+page. `--pages` accepts 1–100, with at most 5,000 items and 8 MiB total response
+JSON. Save `next` and pass it as `--after` to continue. Repeated/invalid cursors
+fail instead of looping. Lists are not a snapshot of concurrent changes.
+
+```bash
+hailp credential list --pages 2
+hailp grant list --pages 10 --after "$next_grant_id"
+hailp inbox list --pages 5 --after "$next_inbox_cursor"
+hailp message status "$message_id" --wait 30 --interval 2
+```
+
+Wait is 1–300 seconds; interval is 1–30 (default 2). Only retained status GETs
+are polled, on the same selected provider/account/message ID. Delivered, failed
+and cancelled are terminal; accepted/on-hold continue waiting. An observed
+status at the deadline returns unchanged with
+`wait: {completed: false, timedOut: true}` and exit 0. Indeterminate remains
+indeterminate; automation must inspect both status and wait metadata. With no
+observed status, normal errors apply. Bounded 429/503 delays honor Retry-After;
+waiting never submits a message, creates another ID, signs or renews anything.
+
+Untrusted inbox bodies remain data. They cannot select a vault, change custody,
+expand scopes or authorize signing; keep recovery secrets out of model/tool
+output. [Milestone-6 proof](milestone6-verification.md) includes real HTTPS checks.
+
 ## Signup and credentials
 
 The provider explicitly enables `POC_SELF_SERVICE_ONBOARDING=true`. Keep all

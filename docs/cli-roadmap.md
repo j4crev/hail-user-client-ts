@@ -249,19 +249,34 @@ to a target learned from a redirect.
 
 ### 6. Stabilize developer and agent operation
 
-- [ ] Define/version the account API and CLI JSON/error contract; add command-
+- [x] Define/version the account API and CLI JSON/error contract; add command-
   specific help and strict invalid-option behavior, plus reliable version reporting.
-- [ ] Add deliberate provider/account selection without leaking credentials to
+  [Contract v1](cli-contract.md) preserves API v1 and existing result fields with
+  additive `cliContractVersion: 1`; contextual help/strict parsing precede side
+  effects, prompts use stderr, and source/compiled `--version` reports `0.1.0`.
+- [x] Add deliberate provider/account selection without leaking credentials to
   another origin; retain private files and useful noninteractive operation.
-- [ ] Add bounded status waiting and pagination convenience without converting
+  Explicit credential paths override the environment; optional provider/account
+  assertions must match the file before network access. No token retargeting.
+- [x] Add bounded status waiting and pagination convenience without converting
   indeterminate receipts into acceptance promises or retrying with new IDs.
-- [ ] Document/install a reproducible CLI package with pinned dependencies and
+  Read-only `message status --wait/--interval` preserves observed status at the
+  deadline; `list --pages` caps pages/items/bytes and retains a continuation cursor.
+- [x] Document/install a reproducible CLI package with pinned dependencies and
   a smoke test for a fresh environment. Consider standalone distribution only
   if users need it; Bun-based operation is the current baseline.
+  [Pinned installation](cli-installation.md) and fresh-layout frozen-install
+  proof cover Bun source and a native `dist/hailp` executable on Linux x64.
 
 **Acceptance:** people and agents use the same authorization rules, stable
 machine-readable results and actionable errors. Untrusted message content
 does not become signing authority; raw private keys are not model/tool output.
+
+**Acceptance status:** passed locally for the reference CLI. [Verification
+evidence](milestone6-verification.md) records 10 client tests, 7 real HTTPS/
+PostgreSQL integrations, typechecks, binary build and clean-layout install smoke.
+Provider account routes/schemas did not need changes; this is not a new live
+deployment or cross-platform binary release.
 
 ### 7. Production federation gate
 

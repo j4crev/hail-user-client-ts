@@ -94,8 +94,24 @@ not a public command or route.
 See the [CLI roadmap](docs/cli-roadmap.md) for the implemented baseline,
 prioritized milestones and acceptance conditions for remaining work.
 
+The versioned developer/agent interface is **0.1.0**, using
+[CLI/API contract v1](docs/cli-contract.md). It includes command-specific help,
+strict options, origin/account assertions, bounded status waiting and multi-page
+reads. See the [developer workflows](docs/cli-workflows.md#developer-and-agent-operation-contract-v1).
+
+Use the [pinned installation recipe](docs/cli-installation.md) to build a native
+executable; `build` typechecks the CLI and creates `dist/hailp` with the Bun runtime
+and dependencies included:
+
+```bash
+bun run build
+bun run smoke -- dist/hailp
+install -Dm755 dist/hailp "$HOME/.local/bin/hailp"
+hailp --version # 0.1.0
+```
+
 After building the sibling libraries and installing dependencies as below,
-either invoke `bun run hailp -- ...` or install the local executable:
+development can also use `bun run hailp -- ...` or the source executable:
 
 ```bash
 bun link

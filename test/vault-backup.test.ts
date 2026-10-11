@@ -54,12 +54,12 @@ it("verifies, backs up and imports exact private vaults offline without overwrit
     };
     const result = await invoke(["import", "--file", backup, "--vault", imported, "--expected-did", "unbound"]);
     expect(result.code, result.stderr).toBe(0);
-    expect(JSON.parse(result.stdout)).toEqual({ ...publicResult, vaultFile: imported });
+    expect(JSON.parse(result.stdout)).toEqual({ ...publicResult, vaultFile: imported, cliContractVersion: 1 });
     expect(await readFile(imported, "utf8")).toBe(original);
     expect((await stat(imported)).mode & 0o777).toBe(0o600);
     const verified = await invoke(["verify", "--vault", imported, "--expected-did", "unbound"]);
     expect(verified.code, verified.stderr).toBe(0);
-    expect(JSON.parse(verified.stdout)).toEqual(publicResult);
+    expect(JSON.parse(verified.stdout)).toEqual({ ...publicResult, cliContractVersion: 1 });
     expect((await invoke(["import", "--file", backup, "--vault", imported])).code).not.toBe(0);
     expect((await invoke(["verify", "--vault", imported, "--credentials", "unused"])).code).not.toBe(0);
     const cliBackup = join(dir, "cli-backup.json");

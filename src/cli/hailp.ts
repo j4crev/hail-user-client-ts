@@ -1,7 +1,10 @@
 #!/usr/bin/env bun
-import { parseArgs } from "node:util";
+import { parseCommand, boundedInteger } from "./options.js";
+import { printResult, printError } from "./output.js";
+import { listPages, waitForStatus } from "../account-reads.js";
+import packageInfo from "../../package.json" with { type: "json" };
 import { decodeBase64Url, toDiagnosticJson } from "@hailproto/codec";
-import { AccountApiClient, AccountApiError } from "../account-api.js";
+import { AccountApiClient } from "../account-api.js";
 import { privateFile, savePrivateBytes, signGrantRevocation } from "../grant-revocation.js";
 import { readRecoverySecret } from "./private-input.js";
 import { createGrant } from "../grant-creation.js";
@@ -17,193 +20,84 @@ import { renewBinding,showBinding } from "../binding-renewal.js";
 import { updateGrant } from "../grant-update.js";
 import { transferOffer,transferStatus,cancelTransfer,selectTransferAddress,exportTransferSnapshot,signAccountTransferCutover,completeAccountTransfer } from "../account-transfer.js";
 
-const help = `hailp — Hail Protocol account CLI (Bun 1.4+)
-
-  hailp account show
-  hailp account transfer offer --destination <https-provider-origin> --vault <owner-vault> --state <new-private-state>
-  hailp account transfer status
-  hailp account transfer select --username <local-part> --vault <owner-vault> --state <original-private-state>
-  hailp account transfer cancel --vault <owner-vault> --state <original-private-state>
-  hailp account transfer export --state <original-private-state> --output <private-snapshot.json>
-  hailp account transfer sign-cutover --vault <owner-vault> --state <original-private-state> --snapshot <private-snapshot.json> --consent <private-consent.json> --operation <private-operation.json> --binding <private-binding.cose>
-  hailp account transfer complete --state <original-private-state> --snapshot <private-snapshot.json>
-  hailp binding show
-  hailp binding renew --expires-at <unix-seconds> --output <binding.cose> [--vault <owner-vault>]
-  hailp account login --provider <https-origin> --did <did> --signer <identity|owner-recovery> --vault <vault> --state <private-state> --credentials <new-output> --scope <permission> ...
-  hailp vault create --vault <new-vault> --recovery-file <new-secret-file>
-  hailp vault verify --vault <private-vault> [--expected-did <did|unbound>]
-  hailp vault backup --vault <private-vault> --output <new-backup-vault>
-  hailp vault import --file <backup-vault> --vault <new-vault> --expected-did <did|unbound>
-  hailp account create --provider <https-origin> --address <address> --custody <owner-controlled|managed> --vault <vault> --state <signup-state> --credentials <new-credential> --backup-verified
-  hailp credential list [--after <credential-id>]
-  hailp credential create --output <new-credential> [--scope <permission> ...]
-  hailp credential rotate --output <new-credential>
-  hailp credential revoke <credential-id>
-  hailp send --grant <grant-id> [--category <category>] --file <text-file> --state <new-request-state> [--reply-until <unix-seconds>]
-  hailp reply <original-message-id> --file <text-file> --state <new-request-state>
-  hailp inbox list [--after <cursor>]
-  hailp inbox show <sender-did> <message-id>
-  hailp message status <message-id>
-  hailp message submit <message-id>
-  hailp grant list [--after <grant-id>]
-  hailp grant create <sender-address> --category <category> ... [--vault <owner-vault>] --output <grant.cose> [--expires-at <unix-seconds> | --no-expiry]
-  hailp grant update <grant-id> (--category <category> ... | --uncategorized) --output <revision.cose> [--vault <owner-vault>] [--expires-at <unix-seconds> | --no-expiry] [--refresh-consent] [--sender <verified-address>]
-  hailp grant show <grant-id> [--output <new-private-current.cose>]
-  hailp grant submit <private-signed-grant.cose>
-  hailp grant revoke <grant-id> [--vault <owner-vault> --output <private-revocation.cose>]
-
-Use --credentials <private-credential.json> or HAILP_CREDENTIAL_FILE.
-Results are JSON on stdout; errors are JSON on stderr with a nonzero exit.
-Transfer select reserves the destination address and can fence the source, blocking normal source writes.
-Owner-controlled Grant signing reads the vault encryption secret from hidden terminal input or protected stdin.
-It decrypts only the identity key, not the PLC recovery private key.
-It saves signed bytes before submission and reuses them on exact retries.
-Vault verify/backup/import and transfer sign-cutover explicitly unlock both keys using protected secret input.
-Transfer export advances a fenced source to exported; sign-cutover saves artifacts offline without submitting a PLC operation.
-Transfer complete submits the retained signed cutover, activates the destination and retires the source; destination access needs fresh owner login.`;
-
 try {
-  const { values, positionals } = parseArgs({ args: Bun.argv.slice(2), allowPositionals: true,
-    options: { credentials: { type: "string" }, vault: { type: "string" }, output: { type: "string" },
-      category: { type: "string", multiple:true }, after: { type: "string" }, "expires-at": { type: "string" },
-      "refresh-consent":{type:"boolean"},sender:{type:"string"},
-      "no-expiry": { type: "boolean" }, uncategorized: { type: "boolean" },
-      provider:{type:"string"},address:{type:"string"},custody:{type:"string"},state:{type:"string"},
-      "backup-verified":{type:"boolean"},"recovery-file":{type:"string"},
-      file:{type:"string"},grant:{type:"string"},"reply-until":{type:"string"},"expected-did":{type:"string"},
-      scope: { type: "string", multiple: true },
-      did: { type: "string" }, signer: { type: "string" },
-      destination:{type:"string"},
-      username:{type:"string"},
-      snapshot:{type:"string"},consent:{type:"string"},operation:{type:"string"},binding:{type:"string"},
-      help: { type: "boolean", short: "h" } } });
-  if (values.help || !positionals.length) console.info(help);
+  const parsed = parseCommand(Bun.argv.slice(2));
+  const { values, positionals } = parsed;
+  const selection = parsed.authenticated ? { provider: values.provider, accountId: values["account-id"] } : {};
+  if (parsed.version) console.info(packageInfo.version);
+  else if (parsed.help) console.info(parsed.help);
   else {
+    const pages = boundedInteger(values.pages, "pages", 100, 1);
+    const wait = values.wait === undefined ? undefined : boundedInteger(values.wait, "wait", 300, 1);
+    const interval = boundedInteger(values.interval, "interval", 30, 2);
     const [group, command, argument] = positionals;
     if(group==="vault") {
-      const allowed = command === "create" ? ["vault", "recovery-file"] : command === "verify" ? ["vault", "expected-did"] :
-        command === "backup" ? ["vault", "output"] : command === "import" ? ["file", "vault", "expected-did"] : [];
-      if (positionals.length !== 2 || !allowed.length || Object.keys(values).some(key => !allowed.includes(key))) {
-        throw new Error("Invalid vault command/options; use hailp --help");
-      }
       if(command==="create") {
-      if(!values.vault||!values["recovery-file"])throw new Error("Vault create requires two new private output files");
       const generated=await createUserVault();
-      try {await savePrivateBytes(values["recovery-file"],new TextEncoder().encode(encodeBase64Url(generated.recoverySecret)+"\n"));
-        await savePrivateBytes(values.vault,new TextEncoder().encode(JSON.stringify(generated.vault)));}
+      try {await savePrivateBytes(values["recovery-file"]!,new TextEncoder().encode(encodeBase64Url(generated.recoverySecret)+"\n"));
+        await savePrivateBytes(values.vault!,new TextEncoder().encode(JSON.stringify(generated.vault)));}
       finally {generated.recoverySecret.fill(0);}
-      console.info(JSON.stringify({vaultFile:values.vault,recoveryFile:values["recovery-file"]}));
+      printResult({vaultFile:values.vault,recoveryFile:values["recovery-file"]});
       } else {
-        if (!values.vault || command === "backup" && !values.output ||
-          command === "import" && (!values.file || !values["expected-did"])) throw new Error("Vault command requires its private paths and import requires --expected-did");
         const expectedDid = values["expected-did"] === "unbound" ? null : values["expected-did"];
         const secret = decodeBase64Url(await readRecoverySecret());
         try {
-          const result = command === "verify" ? await verifyVaultFile(values.vault, secret, expectedDid) :
-            await copyVerifiedVault(command === "backup" ? values.vault : values.file!,
-              command === "backup" ? values.output! : values.vault, secret, expectedDid);
-          console.info(JSON.stringify(result));
+          const result = command === "verify" ? await verifyVaultFile(values.vault!, secret, expectedDid) :
+            await copyVerifiedVault(command === "backup" ? values.vault! : values.file!,
+              command === "backup" ? values.output! : values.vault!, secret, expectedDid);
+          printResult(result);
         } finally { secret.fill(0); }
       }
     } else if(group==="account"&&command==="transfer") {
       if(argument==="complete") {
-        if(positionals.length!==3||Object.keys(values).some(key=>!["state","snapshot"].includes(key))||!values.state||!values.snapshot)throw new Error("Transfer completion requires the original private transfer state and snapshot");
-        console.info(JSON.stringify(await completeAccountTransfer(values.state,values.snapshot)));
+        printResult(await completeAccountTransfer(values.state!,values.snapshot!));
       }else if(argument==="sign-cutover") {
-        if(positionals.length!==3||Object.keys(values).some(key=>!["vault","state","snapshot","consent","operation","binding"].includes(key))||
-          !values.vault||!values.state||!values.snapshot||!values.consent||!values.operation||!values.binding)throw new Error("Cutover signing requires the original private transfer state, snapshot, vault and all three output paths");
-        console.info(JSON.stringify(await signAccountTransferCutover(values.vault,values.state,values.snapshot,values.consent,values.operation,values.binding)));
+        printResult(await signAccountTransferCutover(values.vault!,values.state!,values.snapshot!,values.consent!,values.operation!,values.binding!));
       }else{
-      const allowed=argument==="status"?["credentials"]:argument==="offer"?["credentials","destination","vault","state"]:
-        argument==="select"?["credentials","username","vault","state"]:argument==="export"?["credentials","state","output"]:["credentials","vault","state"];
       const credential=values.credentials ?? Bun.env.HAILP_CREDENTIAL_FILE;
-      if(positionals.length!==3||!["offer","status","cancel","select","export"].includes(argument ?? "")||Object.keys(values).some(key=>!allowed.includes(key))||!credential||
-        argument!=="status"&&(!values.state||argument!=="export"&&!values.vault)||argument==="export"&&!values.output||argument==="offer"&&!values.destination||
-        argument==="select"&&!values.username)throw new Error("Transfer commands require explicit source credentials, private review paths and a selection username");
-      const client=await AccountApiClient.fromCredentialFile(credential);
+      if(!credential)throw new Error("Set --credentials or HAILP_CREDENTIAL_FILE");
+      const client=await AccountApiClient.fromCredentialFile(credential, selection);
       const result=argument==="status"?await transferStatus(client):argument==="offer"?await transferOffer(client,values.destination!,values.vault!,values.state!):
         argument==="select"?await selectTransferAddress(client,values.username!,values.vault!,values.state!):argument==="export"?await exportTransferSnapshot(client,values.state!,values.output!):await cancelTransfer(client,values.vault!,values.state!);
-      console.info(JSON.stringify(result).replace(/hailp_[A-Za-z0-9_-]{43}/g,"[REDACTED]"));
+      printResult(result);
       }
     } else if(group==="account"&&command==="login") {
-      if (positionals.length !== 2 || Object.keys(values).some(key => !["provider", "did", "signer", "vault", "state", "credentials", "scope"].includes(key)) ||
-        !values.provider || !values.did || !["identity", "owner-recovery"].includes(values.signer ?? "") ||
-        !values.vault || !values.state || !values.credentials || !values.scope?.length) throw new Error("Login requires explicit provider, DID, signer, private paths and scopes");
-      console.info(JSON.stringify(await loginAccount(values.provider, values.did, values.signer as "identity" | "owner-recovery",
-        values.scope, values.vault, values.state, values.credentials)).replace(/hailp_[A-Za-z0-9_-]{43}/g, "[REDACTED]"));
-    } else if(group==="account"&&command==="create"&&positionals.length===2) {
-      if(!values.provider||!values.address||!values.vault||!values.state||!values.credentials||!values["backup-verified"]||
-        !["owner-controlled","managed"].includes(values.custody ?? ""))throw new Error("Account create requires explicit custody, provider, outputs and --backup-verified");
-      console.info(JSON.stringify(await createAccount(values.provider,values.address,values.custody as "owner-controlled"|"managed",values.vault,values.state,values.credentials)));
+      printResult(await loginAccount(values.provider!, values.did!, values.signer as "identity" | "owner-recovery",
+        values.scope!, values.vault!, values.state!, values.credentials!));
+    } else if(group==="account"&&command==="create") {
+      printResult(await createAccount(values.provider!,values.address!,values.custody as "owner-controlled"|"managed",values.vault!,values.state!,values.credentials!));
     } else {
-    const valid = group === "account" && command === "show" && positionals.length === 2 ||
-      group === "binding" && ["show","renew"].includes(command ?? "") && positionals.length === 2 ||
-       group === "credential" && ["create", "list", "rotate"].includes(command ?? "") && positionals.length===2 || group==="credential"&&command==="revoke"&&positionals.length===3 ||
-      group==="send"&&positionals.length===1||group==="reply"&&positionals.length===2||
-      group==="inbox"&&command==="list"&&positionals.length===2||group==="inbox"&&command==="show"&&positionals.length===4||
-      group==="message"&&["status","submit"].includes(command ?? "")&&positionals.length===3||
-      group === "grant" && command === "list" && positionals.length === 2 ||
-      group === "grant" && ["show", "submit", "revoke", "create", "update"].includes(command ?? "") && positionals.length === 3;
-    if (!valid || group === "account" && (values.vault || values.output) ||
-      command === "submit" && (values.vault || values.output) || command === "show" && values.vault) {
-      throw new Error("Invalid command/options; use hailp --help");
-    }
-    if (group === "credential") {
-      const allowed = command === "create" ? ["credentials", "output", "scope"] : command === "rotate" ? ["credentials", "output"] : command === "list" ? ["credentials", "after"] : ["credentials"];
-      if (Object.keys(values).some(key => !allowed.includes(key))) throw new Error("Invalid credential command/options; use hailp --help");
-    }
-    if(group==="binding") {
-      const allowed=command==="show"?["credentials"]:["credentials","expires-at","output","vault"];
-      if(Object.keys(values).some(key=>!allowed.includes(key)))throw new Error("Invalid binding command/options");
-    }
     const credential = values.credentials ?? Bun.env.HAILP_CREDENTIAL_FILE;
     if (!credential) throw new Error("Set --credentials or HAILP_CREDENTIAL_FILE");
-    const client = await AccountApiClient.fromCredentialFile(credential);
+    const client = await AccountApiClient.fromCredentialFile(credential, selection);
     let result: unknown;
-    if(group!=="grant"&&values.category&&values.category.length!==1)throw new Error("Messages select exactly one category");
     if (group === "account") result = await client.account();
     else if(group==="binding") {
       if(command==="show")result=await showBinding(client);
-      else {if(!values.output||!values["expires-at"])throw new Error("Renewal requires --output and explicit --expires-at");
-        result=await renewBinding(client,values.output,Number(values["expires-at"]),values.vault);}
+      else result=await renewBinding(client,values.output!,Number(values["expires-at"]),values.vault);
     }
     else if(group==="send"||group==="reply") {
-      if(!values.file||!values.state||(group==="send"&&!values.grant))throw new Error("Send/reply requires file, state and send Grant");
       const until=values["reply-until"]===undefined?undefined:Number(values["reply-until"]);
-      if(until!==undefined&&(!Number.isSafeInteger(until)||until<=Math.floor(Date.now()/1000)))throw new Error("Reply deadline must be in the future");
-      result=await sendMessage(client,values.file,values.state,group==="send"?values.grant:undefined,values.category?.[0],group==="reply"?command:undefined,until);
+      result=await sendMessage(client,values.file!,values.state!,group==="send"?values.grant:undefined,values.category?.[0],group==="reply"?command:undefined,until);
     }
-    else if(group==="inbox")result=await client.request(command==="list"?`/inbox${values.after?`?after=${encodeURIComponent(values.after)}`:""}`:
-      `/inbox/${encodeURIComponent(argument!)}/${encodeURIComponent(positionals[3]!)}`);
-    else if(group==="message")result=await client.request(`/messages/${encodeURIComponent(argument!)}${command==="submit"?"/submit":""}`,command==="submit"?{}:undefined);
+    else if(group==="inbox")result=command==="list"?await listPages(client,"inbox",values.after,pages):
+      await client.request(`/inbox/${encodeURIComponent(argument!)}/${encodeURIComponent(positionals[3]!)}`);
+    else if(group==="message")result=command==="status"?await waitForStatus(client,argument!,wait,interval):
+      await client.request(`/messages/${encodeURIComponent(argument!)}/submit`,{});
     else if(group==="credential") {
       if(command==="revoke")result=await client.request("/credentials",{revoke:argument!});
-      else if(command==="rotate") {
-        if(!values.output)throw new Error("Credential rotate requires --output");
-        result=await rotateCredential(credential, values.output);
-      }
-      else if(command==="list")result=await client.request(`/credentials${values.after ? `?after=${encodeURIComponent(values.after)}` : ""}`);
-      else {
-        if(!values.output)throw new Error("Credential create requires --output");
-        result=await createCredential(client, values.output, values.scope);
-      }
+      else if(command==="rotate")result=await rotateCredential(credential, values.output!);
+      else if(command==="list")result=await listPages(client,"credentials",values.after,pages);
+      else result=await createCredential(client, values.output!, values.scope);
     }
     else if(command==="update") {
-      if(!values.output||Boolean(values.category?.length)===Boolean(values.uncategorized)||values["expires-at"]&&values["no-expiry"]||
-        Object.keys(values).some(key=>!["credentials","category","uncategorized","output","vault","expires-at","no-expiry","refresh-consent","sender"].includes(key)))throw new Error("Update requires explicit scope/output and valid expiry options");
       const expiry=values["no-expiry"]?null:values["expires-at"]===undefined?undefined:Number(values["expires-at"]);
-      if(expiry!==undefined&&expiry!==null&&(!Number.isSafeInteger(expiry)||expiry<0))throw new Error("Invalid Grant expiry");
-      result=await updateGrant(client,argument!,values.category ?? null,values.output,values.vault,expiry,values["refresh-consent"] ?? false,values.sender);
+      result=await updateGrant(client,argument!,values.category ?? null,values.output!,values.vault,expiry,values["refresh-consent"] ?? false,values.sender);
     }
-    else if (command === "list") result = await client.request(`/grants${values.after ? `?after=${encodeURIComponent(values.after)}` : ""}`);
+    else if (command === "list") result = await listPages(client,"grants",values.after,pages);
     else if (command === "create") {
-      if (!values.output || Boolean(values.category) === Boolean(values.uncategorized) ||
-        values["expires-at"] && values["no-expiry"]) throw new Error("Create requires vault/output and exactly one category or --uncategorized");
       const expiry = values["no-expiry"] ? null : values["expires-at"] === undefined ? undefined : Number(values["expires-at"]);
-      if (expiry !== undefined && expiry !== null && (!Number.isSafeInteger(expiry) || expiry <= Math.floor(Date.now()/1000))) {
-        throw new Error("Grant expiry must be a future Unix timestamp");
-      }
-      result = await createGrant(client,argument!,values.category ?? null,values.vault ?? "",values.output,expiry);
+      result = await createGrant(client,argument!,values.category ?? null,values.vault ?? "",values.output!,expiry);
     }
     else if (command === "submit") result = await client.submit(await privateFile(argument!, 262_144));
     else {
@@ -235,12 +129,10 @@ try {
         }
       }
     }
-    console.info(JSON.stringify(result).replace(/hailp_[A-Za-z0-9_-]{43}/g, "[REDACTED]"));
+    printResult(result);
     }
   }
 } catch (error) {
-  console.error(JSON.stringify({ error: { code: error instanceof AccountApiError ? `HTTP_${error.status}` : "CLIENT_ERROR",
-    message: (error instanceof Error ? error.message : "Client operation failed")
-      .replace(/hailp_[A-Za-z0-9_-]{43}/g, "[REDACTED]") } }));
+  printError(error);
   process.exitCode = 1;
 }

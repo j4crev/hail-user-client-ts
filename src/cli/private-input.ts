@@ -1,7 +1,7 @@
 export async function readRecoverySecret(): Promise<string> {
   if (!process.stdin.isTTY) return (await Bun.stdin.text()).trim();
   const input = process.stdin;
-  const terminal = process.stdout;
+  const terminal = process.stderr;
   let value = "";
   input.setRawMode(true);
   terminal.write("Recovery secret (hidden): ");

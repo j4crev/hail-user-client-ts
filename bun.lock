@@ -5,9 +5,11 @@
     "": {
       "name": "hail-user-client-ts",
       "dependencies": {
+        "@atproto/common": "0.8.1",
         "@atproto/crypto": "0.5.4",
         "@did-plc/lib": "file:../did-method-plc/packages/lib",
         "@hailproto/codec": "file:../hailproto/packages/hail-codec-ts",
+        "@ipld/dag-cbor": "9.2.7",
         "multiformats": "13.4.2",
       },
       "devDependencies": {
