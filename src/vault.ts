@@ -68,6 +68,12 @@ export interface UserTransferCancellation {
   type: "hail.transfer-cancellation"; version: 1; did: string; nonce: string;
   grant_digest: Uint8Array; issued_at: number; expires_at: number;
 }
+export interface UserTransferRecoveryApproval {
+  type:"hailp.transfer-abandon"|"hailp.transfer-resume";version:1;did:string;transfer_id:string;
+  source_service_base:string;destination_service_base:string;source_generation:number;snapshot_digest:Uint8Array;
+  cutover_operation_cid:string;user_recovery_key:string;nonce:string;issued_at:number;expires_at:number;
+  protective_operation_cid?:string;invalidation_digest?:Uint8Array;
+}
 
 function bytes(value: Uint8Array): Uint8Array<ArrayBuffer> { return Uint8Array.from(value); }
 function aad(role: Role, didKey: string): Uint8Array<ArrayBuffer> {
@@ -211,6 +217,15 @@ export class UnlockedUserVault {
     if (!this.vault.did || challenge.did !== this.vault.did || challenge.signer !== "owner-recovery" ||
       challenge.publicKey !== this.vault.recovery.publicDidKey) throw new Error("Recovery proof does not match the reviewed owner key");
     return this.recovery.sign(input);
+  }
+  async signTransferRecoveryApproval(approval:UserTransferRecoveryApproval) {
+    if(!this.vault.did||approval.did!==this.vault.did||approval.user_recovery_key!==this.vault.recovery.publicDidKey||
+      !["hailp.transfer-abandon","hailp.transfer-resume"].includes(approval.type)||approval.version!==1||!Number.isSafeInteger(approval.source_generation)||approval.source_generation<1||
+      approval.snapshot_digest.length!==32||!Number.isSafeInteger(approval.issued_at)||!Number.isSafeInteger(approval.expires_at)||
+      approval.expires_at<=approval.issued_at||approval.expires_at-approval.issued_at>3600||approval.source_service_base===approval.destination_service_base||
+      approval.type==="hailp.transfer-resume"&&(!approval.protective_operation_cid||approval.invalidation_digest?.length!==32))throw new Error("Recovery approval must bind this owner and one exact private transfer");
+    const payloadBytes=encodeDeterministic(approval as unknown as HailValue),tag=new TextEncoder().encode(`${approval.type}.v1\0`),input=new Uint8Array(tag.length+payloadBytes.length);
+    input.set(tag);input.set(payloadBytes,tag.length);return {payloadBytes,signature:await this.recovery.sign(input)};
   }
 
   async signPlcOperation(unsigned: UnsignedOperation): Promise<{ operation: Operation;
