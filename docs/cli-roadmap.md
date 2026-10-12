@@ -41,9 +41,13 @@ protocol boundary.
   identity, preserves the owner recovery and monitored history, and uses the same
   acknowledged-Grant, exact-retry and atomic generation guarantees.
 - Native managed A → B migration now has local-only proof through owner-signed
-  cutover approval and inert destination staging. It validates the exact
-  snapshot-v4 history and handshake, prepares a destination-signed binding, and
-  does not submit to PLC or activate the destination account.
+  cutover approval, configured-registry submission/observation and atomic
+  destination materialization. It validates exact snapshot-v4 history, installs
+  only fresh B-held keys, preserves accepted work, advances the generation and
+  creates Grant successors, then retires A using B's exact signed activation
+  receipt. Disposable PostgreSQL proof now completes A → B → A with fresh roles,
+  monotonic generations and immutable history. Public CLI completion remains
+  disabled.
 
 The private-PLC deployments and local proof environment do not establish public
 production readiness or independent monitoring.

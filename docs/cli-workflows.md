@@ -285,6 +285,31 @@ Returning to a former provider uses the same five steps with a fresh transfer
 state and username. It is a new forward transfer, not reopening old provider
 state or credentials.
 
+## Start a managed-account provider move
+
+The local managed-migration profile currently exposes only the owner handshake
+through source fencing. It does not submit the PLC cutover or activate the
+destination account.
+
+```bash
+hailp account managed-transfer offer \
+  --destination https://destination.example \
+  --vault /secure/account/vault.json \
+  --state /secure/account/managed-transfer.json
+
+hailp account managed-transfer status
+
+hailp account managed-transfer select --username moved-name \
+  --vault /secure/account/vault.json \
+  --state /secure/account/managed-transfer.json
+```
+
+Use the managed source credential with `account:read` and `account:write`.
+Both signing commands unlock the owner recovery key, save the signed artifact
+before network submission, and reuse the same bytes after an ambiguous response.
+After address selection, the destination can fence the source; retain the state
+file. There is not yet a CLI cancellation or completion path for this profile.
+
 ## Change owner-controlled custody to managed
 
 This same-provider transition is available only when the provider enables

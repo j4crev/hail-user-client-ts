@@ -20,6 +20,7 @@ import { renewBinding,showBinding } from "../binding-renewal.js";
 import { updateGrant } from "../grant-update.js";
 import { transferOffer,transferStatus,cancelTransfer,selectTransferAddress,exportTransferSnapshot,signAccountTransferCutover,completeAccountTransfer } from "../account-transfer.js";
 import { transitionToManaged,transitionToOwner } from "../custody-transition.js";
+import {managedTransferOffer,managedTransferStatus,selectManagedTransferAddress} from "../managed-account-transfer.js";
 
 try {
   const parsed = parseCommand(Bun.argv.slice(2));
@@ -62,6 +63,13 @@ try {
         argument==="select"?await selectTransferAddress(client,values.username!,values.vault!,values.state!):argument==="export"?await exportTransferSnapshot(client,values.state!,values.output!):await cancelTransfer(client,values.vault!,values.state!);
       printResult(result);
       }
+    } else if(group==="account"&&command==="managed-transfer") {
+      const credential=values.credentials ?? Bun.env.HAILP_CREDENTIAL_FILE;
+      if(!credential)throw new Error("Set --credentials or HAILP_CREDENTIAL_FILE");
+      const client=await AccountApiClient.fromCredentialFile(credential,selection);
+      printResult(argument==="status"?await managedTransferStatus(client):argument==="offer"?
+        await managedTransferOffer(client,values.destination!,values.vault!,values.state!):
+        await selectManagedTransferAddress(client,values.username!,values.vault!,values.state!));
     } else if(group==="account"&&command==="custody") {
       const credential=values.credentials ?? Bun.env.HAILP_CREDENTIAL_FILE;
       if(!credential)throw new Error("Set --credentials or HAILP_CREDENTIAL_FILE");

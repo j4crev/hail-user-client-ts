@@ -50,7 +50,7 @@ async function verify(signed:Wire,kind:string,key:string) {
     !equal(bytes,encodeDeterministic(value)))throw new Error("Invalid transfer handshake fields");
   return value;
 }
-function destinationOrigin(input:string) {
+export function destinationOrigin(input:string) {
   const url=new URL(input),domain=domainToASCII(url.hostname);
   if(url.protocol!=="https:"||url.origin!==input||url.port||url.username||url.password||url.search||url.hash||domain!==url.hostname||
     isIP(domain)||!/^([a-z0-9-]+\.)+[a-z0-9-]+$/.test(domain)||domain.split(".").some(p=>p.startsWith("-")||p.endsWith("-")))throw new Error("Select a canonical public HTTPS provider domain without a port/path");

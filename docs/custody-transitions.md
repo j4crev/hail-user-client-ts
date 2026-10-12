@@ -1,7 +1,8 @@
 # Custody changes, managed migration and return transfers
 
 Status: milestone-7 reference design. Both strict-public same-provider custody
-directions are implemented; cross-provider managed transitions remain disabled.
+directions and the local configured-registry managed path through source
+retirement are implemented; production cross-provider rollout remains disabled.
 This document specifies the local lifecycle
 and its implementation gates; it does not amend Hail federation formats or settle
 production historical PLC authority. The [protocol custody direction](https://github.com/j4crev/hailproto/blob/main/docs/production-portable-custody.md#managed-profiles-and-people-or-agents),
@@ -174,7 +175,7 @@ independent reader/monitor operation.
   identity, acknowledged Grant successors, exact retries and atomic generations.
 - [x] Migration 47: durable managed-transfer profile, source/destination custody
   declarations, fresh destination identity material and guarded rollback.
-- [ ] Owner-recovery handshake: one exact A → B intent and address selection;
+- [x] Owner-recovery handshake: one exact A → B intent and address selection;
   provider identity signatures cannot substitute for owner authorization.
   The versioned grant, source acknowledgement, selection and exact snapshot-v4
   approval validators are implemented. Source admission is durable and refuses
@@ -183,7 +184,9 @@ independent reader/monitor operation.
   destination HTTPS route and separate durable managed-Offer retry worker are
   implemented locally. B now atomically reserves the owner-selected address,
   signs the exact reservation and durably retries its signed fence request to
-  A. CLI orchestration remains.
+  A. `hailp account managed-transfer offer|status|select` now retains and
+  validates the exact owner-signed grant, source acknowledgement, destination
+  Offer, owner selection and destination reservation across ambiguous retries.
 - [x] Destination Offer: fresh B identity, messaging and rotation keys, with all
   private material encrypted and retained only at B.
 - [x] Managed snapshot v4: the local exporter carries source-attributed managed
@@ -204,12 +207,24 @@ independent reader/monitor operation.
   and B's prepared private-key possession, creates a B-identity-signed binding,
   and stores one exact-retryable inactive import. No account is materialized and
   no PLC operation is submitted by this gate.
-- [ ] PLC submission/observation and destination materialization: verified binding, managed custody record,
-  Grant successors, accepted work/history, fresh generation and credentials.
-- [ ] Source retirement and exact retry/recovery under lost Offer, export, PLC,
-  activation and retirement responses.
-- [ ] Disposable-database A → B → A proof including stale workers, terminal
-  Grants, history bytes, changed-artifact refusal and guarded rollback.
+- [x] PLC submission/observation and destination materialization: configured-registry
+  submission reconciles an ambiguous write and requires strict readers to
+  confirm the exact retained operation and destination roles without contacting
+  the public directory. Migration 49 then atomically consumes the reserved
+  address, installs only B's fresh keys and managed-custody record, preserves
+  accepted work/history, creates acknowledged-predecessor Grant successors,
+  advances beyond the source generation and activates the inert import. No
+  credential is transported; fresh access still requires owner-recovery login.
+- [x] Source retirement and exact retry/recovery under lost Offer, export, PLC,
+  activation and retirement responses. B signs the exact retained activation
+  receipt with its current messaging key; A checks current PLC authority,
+  archives once and accepts only byte-identical retirement retries.
+- [x] Disposable-database A → B → A proof including stale workers, terminal
+  Grants, history bytes, changed-artifact refusal and guarded rollback. The
+  return validates A's immutable retired projection, installs fresh A roles at
+  generation 3, preserves terminal Grant bytes, creates the active Grant's next
+  successor, revokes old credentials, rejects stale generation-1 work, retires
+  B exactly and redacts every prepared private-key field from archived imports.
 
 The narrow slice refuses unacknowledged/conflicting Grant predecessors, nullified
 or disputed PLC history, mixed custody, non-strict authority and pre-existing
@@ -222,8 +237,9 @@ Grant lineages whose current publication is acknowledged. It precomputes a
 higher revision with unchanged authorization/consent and the exact predecessor,
 then installs those successors in the custody transaction. Terminal lineages are
 left unchanged. Unacknowledged and conflicting predecessors still block.
-Cross-provider identity-changing paths remain disabled until their equivalent
-historical-key proof exists.
+Managed cross-provider materialization now applies the same acknowledged-
+predecessor rule and signs a successor with the destination identity. Production
+enablement remains gated on the complete round trip and rollout controls.
 
 - Retain each original COSE representation/digest, exact signer public key,
   validated PLC operation/audit evidence, trusted observations/checkpoints,

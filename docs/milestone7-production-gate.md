@@ -323,7 +323,10 @@ history and tamper refusal, and the two-race private forward/return/recovery
 integration through the real CLI. These use disposable local databases and do not
 prove independent cross-host restoration.
 
-The next coherent implementation slice is cross-provider managed migration.
+Cross-provider managed migration now has local configured-registry proof through
+destination materialization, exact source retirement and disposable-database
+A → B → A proof in provider migration 49. Public operational rollout remains
+next.
 Deployment work must later exercise onboarding and v3 history restoration against
 real independently operated readers/monitor and public PLC, deliberately outside
 these local migration tests.
