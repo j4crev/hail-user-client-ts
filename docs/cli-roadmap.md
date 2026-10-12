@@ -1,348 +1,70 @@
-# hailp CLI roadmap
+# `hailp` roadmap
 
-## Goal and boundaries
+This page summarizes capability status. It is not a command guide; use
+[CLI workflows](cli-workflows.md) for implemented commands and
+`hailp <command> --help` for exact options.
 
-Make `hailp` a practical HTTPS account client for developers, people and agents,
-without requiring a UI, provider SSH access or database credentials for normal
-use. Native provider CLIs and applications may use the same account API.
-Federation remains the interoperable protocol boundary; the reference account
-API is not yet a mandatory cross-provider client API standard.
+## Goal
 
-Support explicit owner-controlled identity and managed identity custody. The
-preferred managed profile keeps the top PLC recovery key with the owner.
-Custody must never be inferred from whether a caller is human or an agent, or
-silently changed when a signing device is unavailable. Revocation stays a
-signed terminal revision; the optional unsigned local-blocking feature is
-excluded.
+Provide a practical HTTPS account client for people, developers, and agents
+without provider SSH or database access. Support explicit owner-controlled and
+managed identity custody without silently changing custody when a signer is
+unavailable.
 
-This roadmap records priorities and acceptance conditions, not release dates.
-Use [CLI workflows](cli-workflows.md) for commands available today. Proposed
-commands below are design examples, not implemented interfaces.
+The reference account API is currently an implementation interface. Hail
+federation and the specifications in `../hailproto` remain the interoperable
+protocol boundary.
 
-## Implemented local baseline
+## Implemented
 
-Baseline: client `5cc0960`, provider `19a9313`, provider migration 33. These
-commits are tested local implementation, not proof of VPS rollout or production
-readiness. Check deployment separately before trying a new API on a live host.
+- JSON CLI with strict command-specific options, explicit credential/account
+  selection, bounded pagination and status waiting.
+- Vault creation, verification, backup, import, and resumable account signup.
+- Owner-controlled and managed account profiles with owner-held top PLC
+  recovery authority.
+- Credential inventory, narrower issuance, rotation, revocation, and explicit
+  owner-proof login after bearer expiry.
+- Grant creation, inspection, update, submission, and signed revocation.
+- Text send, invited reply, inbox reads, resubmission, and retained status.
+- Address Binding renewal.
+- Owner-controlled provider transfer, cancellation before fencing, exact
+  cutover signing, completion, and forward return to a former provider.
+- Managed-profile and strict-public onboarding/authority conformance slices
+  verified locally through provider migration 44.
 
-- [x] Unified `hailp` executable, JSON results/errors and private credential files.
-- [x] Vault creation and resumable private-PLC account signup with explicit
-  owner-controlled or managed custody; owner-controlled top recovery in both.
-- [x] Account details and scoped credential creation/revocation with inherited
-  permissions, hashing, expiry and account isolation.
-- [x] Grant create/list/show/submit/revoke, local owner signatures or explicit
-  managed signing, with retained artifacts for retries.
-- [x] Text send, invited reply, message submit/status and scoped inbox list/show,
-  stable sender-scoped message IDs and bounded pagination.
-- [x] HTTPS verification, redirect rejection, input/response bounds, fences and
-  exact-retry integration proofs. Recorded gates: 161 provider tests, including
-  53 PostgreSQL integrations, and 3 client tests; typechecks/builds passed.
+The private-PLC deployments and local proof environment do not establish public
+production readiness or independent monitoring.
 
-Current limits: self-service signup is opt-in private PLC only; API credentials
-expire after 30 days; rotate while valid or use explicit owner proof for new
-access after expiry. Messages accept text
-files up to 64 KiB; Grant/inbox lists return at most 50 items. The reference
-vault uses one encryption secret for both key records; routine Grant commands
-now unlock only identity (milestone 2). Public onboarding and managed migration
-are not implemented. Binding renewal and stable-key Grant updates are deployed
-and verified on the private POC at migration 35. Post-expiry owner
-login/recovery is deployed and verified on the private POC with migration 34;
-see the [lifecycle release evidence](lifecycle-release.md).
+## Remaining production gates
 
-## Prioritized milestones
+1. Finish review of the managed-custody and PLC read-evidence specifications.
+2. Exercise public `plc.directory` onboarding and recovery with non-disposable
+   identity and recovery material.
+3. Operate monitor/read paths independently from providers and test bootstrap,
+   disagreement, gaps, alerts, and recovery inside the PLC recovery window.
+4. Complete managed migration and custody-transition workflows while preserving
+   historical evidence and rollback safety.
+5. Prove cross-host restoration, historical signed-object audits, and load
+   limits on independently operated infrastructure.
+6. Integrate device-keystore or hardware protection and verify cross-platform
+   binary distribution.
 
-### 1. Validate and release the current slice
+## Current constraints
 
-- [x] Rehearse migrations 32–33 against restored deployment copies and verify
-  compatible images, backup retention and provider-local credential behavior.
-  [October 9 rehearsal evidence](cli-release-rehearsal.md); this rehearsal kept
-  live providers at migration 31. Image compatibility here proves worker-disabled schema/readiness
-  startup, not rollback after new account API writes.
-- [x] Roll providers individually, verify readiness, then exercise disposable
-  owner-controlled and managed CLI accounts on the POC's real HTTPS endpoints.
-  [October 9 rollout evidence](cli-release-rollout.md): both providers at migration
-  33; both custody profiles passed signup/account/credential smoke on each host.
-- [ ] Verify signup interruption, credential isolation, Grant retries, send/
-  inbox/reply and source fencing across process restarts; retain evidence.
-- [ ] Review current authorization, validation and error boundaries before
-  expanding the externally exposed API; calibrate limits for the target host.
+- Self-service private-PLC features are provider opt-ins.
+- The v1 vault uses one encryption secret for both encrypted key records, even
+  though routine operations load only the identity key.
+- API credentials are provider-local and expire; rotate them while valid or use
+  explicit owner-proof login.
+- Managed provider transfer and automated post-export rollback are not public
+  CLI workflows.
+- The reference CLI has no finished consumer review UI or automatic provider
+  discovery.
 
-**Acceptance:** a fresh CLI installation can complete the documented workflows
-against the deployed private POC without disabling TLS verification or exposing
-user recovery material. No claim of independent production monitoring follows
-from a same-VPS demonstration.
+## Supporting records
 
-### 2. Separate routine signing from recovery
-
-- [x] Add an identity-only vault unlock/signing path for routine owner-controlled
-  Grant actions; keep recovery-key unlocking explicit for reviewed recovery/
-  onboarding/transfer operations.
-  `unlockUserIdentity()` is used by API and legacy POC Grant commands. Regression
-  proof covers creation/revocation/exact retries with unreadable recovery
-  ciphertext, identity validation and preserved full-unlock requirements.
-  The v1 vault still shares one encryption secret; device protection is separate.
-- [x] Define convenient device-keystore protection without assuming a WebAuthn
-  credential can directly produce Hail's raw Ed25519 signatures.
-  [Device-keystore decision](device-keystore.md): independently wrapped
-  identity-only device record, Linux Secret Service unlock and explicit enrollment;
-  recovery backup secrets never enter the device keystore. OS integration remains
-  unimplemented; this item records the protection/lifecycle definition.
-- [x] Add backup verification/import workflows and prove restoration on a second
-  installation/device, independent of provider-held data.
-  `hailp vault verify/backup/import` verify both keys and exact private copies.
-  [Offline second-installation evidence](vault-restoration.md) covers both custody
-  profiles, owner identity signing and owner recovery signatures with networking
-  disabled. Same-machine installations, not a second physical device.
-
-**Acceptance:** ordinary Grant actions never decrypt/load the PLC recovery key;
-losing one client installation does not destroy the only recoverable identity.
-The vault format remains an implementation detail, not a protocol requirement.
-
-### 3. Complete credential and account access lifecycle
-
-- [x] Design authenticated login/recovery after credentials expire, including
-  managed accounts whose active identity key is provider-held. Keep account
-  access recovery distinct from PLC identity recovery and custody changes.
-  [Account-access recovery decision](account-access-recovery.md): current owner
-  identity proof or deliberately selected owner recovery proof, provider-bound
-  one-time challenges and new credentials only. The design is now implemented
-  as `account login` with explicit signer/scopes and migration 34;
-  [verification evidence](account-access-verification.md) records both custody
-  paths, exact retries and current-authority/fence checks. Both custody profiles
-  also passed [real HTTPS POC recovery](lifecycle-release.md) on both providers.
-- [x] Add credential inventory and deliberate narrower-scope issuance; ensure
-  an agent or read-only credential cannot gain additional authority.
-  Deployed API-plus-CLI slice: bounded `credential list` and repeated `--scope`
-  selection, subset enforcement, terminal revoked/expired tokens and exact
-  token/scope retries. [Credential lifecycle checks](credential-lifecycle.md)
-  record real HTTPS/PostgreSQL proof; [POC release proof](lifecycle-release.md)
-  also verifies inventory and narrower issuance on both hosts.
-- [x] Improve rotation workflows and expiry visibility while preserving private
-  outputs and exact recovery from interrupted issuance.
-  `credential rotate` saves a new token and private request sidecar, verifies
-  the replacement before revoking its source and resumes with those same artifacts.
-  `account show` includes current credential ID/expiry; inventory and issuance also
-  expose expiry. [Rotation proof](credential-lifecycle.md#resumable-rotation)
-  covers fresh-process retries, both custody profiles and terminal/fenced failures.
-
-**Acceptance:** an authorized owner can restore account access without silently
-replacing top recovery authority, reviving revoked credentials or importing an
-owner's recovery private key into the provider. Scope escalation is rejected.
-
-**Acceptance status:** passed for the private POC. Migration 34 was rehearsed on
-restored copies of both live databases, providers were rolled individually, and
-both custody profiles passed expiry/recovery/rotation/scope/terminal-token checks
-on each real HTTPS origin. All four original PLC genesis logs were unchanged.
-See [release evidence and boundaries](lifecycle-release.md); this is not public
-PLC or independent production recovery evidence.
-
-### 4. Address renewal and complete Grant revisions
-
-- [x] Implement signed Address Binding renewal, expiry visibility/reminders and
-  safe publication retries; retain the current 90-day maximum unless the
-  specification is explicitly revised.
-  `binding show/renew` with identity-only/explicit managed signing,
-  seven-day reminder metadata, hosted-before-selected publication and exact
-  artifacts/retries. [Contract and proof](binding-renewal.md). Migration 35 adds
-  deliberate `account:write` authority without upgrading old credentials.
-  Provider-domain renewal only; [private-POC release verified](milestone4-release.md).
-- [x] Add active Grant updates: category changes, explicit renewal and consent
-  refresh. Support multiple selected categories without introducing wildcards.
-  `grant update` with repeated categories, reviewed expiry and explicit
-  consent refresh, identity-only/managed signatures and retained exact artifacts.
-  [Contract and proof](grant-revisions.md); both custody profiles passed
-  [real HTTPS cross-provider revision publication](milestone4-release.md).
-- [x] Require fresh verified evidence/consent for expanded authorization; retain
-  prior consent for restrictions/revocation without relying on sender availability.
-  Expansion/scope switches/expiry extension reverify both evidence objects;
-  pure restrictions preserve context offline. Evidence changes, forks and address
-  reassignment cannot overwrite signed history or transfer DID-bound authority.
-- [x] Define historical-key reconciliation before supporting identity rotation
-  over unacknowledged predecessor revisions.
-  [Historical-key decision](grant-key-reconciliation.md): verified receipts and
-  retained signed PLC/object history precede any reconciliation. Execution is
-  deferred; this slice refuses new signer epochs rather than guessing authority.
-
-**Acceptance:** expired signers/permissions do not cause silent renewal;
-restrictions remain unilateral; conflicting revisions never overwrite signed
-history. Existing DID-bound Grants are not transferred or revoked merely
-because an address binding expires or an address changes holder.
-
-**Acceptance status:** passed for the private POC. Migration 35 preserved both
-restored live databases and their credential scopes; individual rollout and real
-HTTPS checks passed for both custody profiles on both origins, including all five
-cross-provider revision acknowledgements. PLC genesis logs were unchanged.
-See [release evidence/boundaries](milestone4-release.md). Historical-key policy is
-defined; identity-rotation reconciliation remains disabled.
-
-### 5. Bring transfer and custody transitions into hailp
-
-**Deployed private-POC owner-controlled flow:** `hailp account transfer offer/status/select/cancel/export/sign-cutover/complete` now
-uses authenticated source APIs and identity-only approval/selection/cancellation signing.
-Export retrieves a signed, account/Offer-bound immutable source snapshot and
-advances the fence to exported. Offline cutover signing explicitly unlocks both
-vault keys and retains the exact PLC operation, consent and destination binding;
-the transfer state pins snapshot digest and output paths before signing.
-Completion stages exact signed artifacts, submits the retained PLC operation,
-publishes/verifies the destination binding, activates the destination and retires
-the source using a retained signed activation receipt. Fresh destination access
-uses the existing explicit identity-key login with provider-local credentials.
-Offers are destination-origin-confirmed and locally signature/digest-checked;
-private state retains exact bytes across ambiguous responses. Explicit address
-selection can fence the source and retries the same signed selection/reservation.
-Cancellation retains a signed no-fence receipt, forwards it without bearer
-credentials and reports success only after target cleanup acknowledgement.
-Provider routes are opt-in behind `POC_SELF_SERVICE_TRANSFER=true` on the pinned
-private PLC profile. Both providers run migration 39 with transfer/return enabled;
-see [restored-copy rehearsal and real HTTPS release evidence](milestone5-release.md).
-Client regression checks and PostgreSQL provider-route/cancellation/fence tests
-pass. The full private-POC transfer proof now exercises the account client through
-address selection, including a lost response after the real source fence,
-authenticated export, actual `hailp` cutover signing and API-driven completion
-through activation, retirement and fresh destination login. Export retries recover a lost response after durable
-export; changed cutover paths and tampered snapshots are rejected, and the legacy
-cutover command still reuses the same signed artifacts. Coordinated cancellation
-also survives a lost target acknowledgement without resubmitting source cancellation.
-Completion recovers lost PLC, activation and retirement responses using the same
-signed artifacts, including after accepted consent expiry. An expired consent
-cannot initiate a fresh PLC write; it never releases the source fence or reservation.
-See [workflow and remaining boundaries](cli-workflows.md#owner-controlled-transfer-offer-review-and-source-cancellation).
-
-- [x] Integrate the existing owner-controlled reference transfer tools into
-  cohesive API-driven commands for Offer review, address selection, status,
-  exact cutover signing and completion. Example: `hailp account transfer …`.
-  Implemented for the pinned private-POC profile; public federation trust remains
-  a separate gate, and managed/custody execution remains distinct from this proof.
-- [x] Design explicit owner-controlled ↔ managed custody changes and managed
-  provider migration, including removal/rotation of an old provider's identity
-  authority and preservation of Grant/binding historical evidence.
-  See [custody-transition/managed-migration design](custody-transitions.md):
-  independent owner-recovery authorization, fresh identity authority, preserved
-  historical evidence and separately versioned profiles. Runtime execution stays
-  disabled until historical-key, lifecycle-generation and custody proofs pass.
-- [x] Prove return to a former provider with retained retired history and
-  coordinated post-export recovery/rollback before enabling those paths.
-  The local [migration 36 foundation](lifecycle-history-migration.md) preserves
-  immutable retired transfer history without changing signed v2/account shapes;
-  its expand-stage generation-1 constraint and guarded rollback remain documented.
-  [Migrations 37/38 and the private owner-controlled return proof](generation-bound-return.md)
-  now bind credentials/challenges/worker leases and admitted operations to a
-  serving generation. A → B → A preserves B's work, acknowledged publications,
-  status payloads and collocated ownership while rejecting old access/leases and
-  a request paused across the move. The return gate preserves identity/recovery
-  and uses a fresh available username.
-  The [migration-39 coordinated recovery proof](post-export-recovery.md) now covers
-  staged never-active abandonment in both PLC race orders, import-row submission
-  barriers, exact invalidation/release/resumption receipts, delayed-operation
-  rejection through official PLC priority validation, preserved source state and
-  generation advancement/fresh login. Together with the stable-owner private
-  return proof, this completes the local owner-controlled proof goal. Public
-  resumption routes/CLI enabling, broader restore ceremonies, managed execution
-  and production finality remain their separate gates. The coordinator is internal
-  and is included in the deployed migration-39 image without public recovery routes.
-
-**Acceptance:** one active owner remains; accepted message/status/outbox
-responsibilities survive; expiry alone never releases an exported fence or
-submitted reservation. Existing owner-controlled transfer proof is not proof
-of managed migration. Credentials remain provider-local and are not forwarded
-to a target learned from a redirect.
-
-### 6. Stabilize developer and agent operation
-
-- [x] Define/version the account API and CLI JSON/error contract; add command-
-  specific help and strict invalid-option behavior, plus reliable version reporting.
-  [Contract v1](cli-contract.md) preserves API v1 and existing result fields with
-  additive `cliContractVersion: 1`; contextual help/strict parsing precede side
-  effects, prompts use stderr, and source/compiled `--version` reports `0.1.0`.
-- [x] Add deliberate provider/account selection without leaking credentials to
-  another origin; retain private files and useful noninteractive operation.
-  Explicit credential paths override the environment; optional provider/account
-  assertions must match the file before network access. No token retargeting.
-- [x] Add bounded status waiting and pagination convenience without converting
-  indeterminate receipts into acceptance promises or retrying with new IDs.
-  Read-only `message status --wait/--interval` preserves observed status at the
-  deadline; `list --pages` caps pages/items/bytes and retains a continuation cursor.
-- [x] Document/install a reproducible CLI package with pinned dependencies and
-  a smoke test for a fresh environment. Consider standalone distribution only
-  if users need it; Bun-based operation is the current baseline.
-  [Pinned installation](cli-installation.md) and fresh-layout frozen-install
-  proof cover Bun source and a native `dist/hailp` executable on Linux x64.
-
-**Acceptance:** people and agents use the same authorization rules, stable
-machine-readable results and actionable errors. Untrusted message content
-does not become signing authority; raw private keys are not model/tool output.
-
-**Acceptance status:** passed locally for the reference CLI. [Verification
-evidence](milestone6-verification.md) records 10 client tests, 7 real HTTPS/
-PostgreSQL integrations, typechecks, binary build and clean-layout install smoke.
-Provider account routes/schemas did not need changes; this is not a new live
-deployment or cross-platform binary release.
-
-### 7. Production federation gate
-
-**Started:** the [managed-profile v1 draft](https://github.com/j4crev/hailproto/blob/main/spec/managed-custody.md)
-defines owner/provider authority and MC-01–MC-14 conformance cases. The first
-local slice validates managed genesis roles/state/limits and rechecks exact
-signed signup artifacts on bound-vault retries. [Verification and remaining
-gate order](milestone7-production-gate.md) records the reference subset; full
-review and independent production deployment remain open.
-The next [read-evidence policy candidate](https://github.com/j4crev/hailproto/blob/main/spec/plc-read-evidence.md)
-now has complete public cutover audit agreement, independent reader/operator
-configuration and monitor migration-3 reviewed bootstrap/backfill/v2 coverage
-checks. Local gates passed (9 provider PLC checks, 16 fenced-transfer integrations,
-14 monitor tests); live independent deployment and full evidence retention remain
-open. See the [updated proof and next slice](milestone7-production-gate.md#read-evidence-and-monitor-bootstrap-slice).
-Provider migration 40 now retains immutable complete cutover bundles and seals
-the exact digest at public activation, with guarded rollback and preserved private
-transfer/return/recovery. [Retention verification](milestone7-production-gate.md#durable-provider-cutover-evidence-slice-migration-40)
-records 10 focused checks and 20 PostgreSQL integrations. Routine public authority,
-onboarding and independently operated infrastructure remain their next gates.
-Migration 41 now provides an explicitly configured strict routine resolver with
-fresh two-reader agreement, immutable read evidence and atomic inbound-envelope
-authority bindings. [Routine authority proof](milestone7-production-gate.md#routine-public-authority-slice-migration-41)
-records 118 non-PostgreSQL checks and 21 PostgreSQL integrations. Remaining action
-bindings, history transport, public owner/monitor onboarding and real independent
-infrastructure stay open.
-Migration 42 now binds strict-public Grant creation, update, revocation and import
-to fresh retained signer/recipient/consent decisions in the same transaction.
-[Grant authority proof](milestone7-production-gate.md#public-grant-authority-slice-migration-42)
-records the focused local checks. Binding/profile/status signing, historical evidence
-transport, public onboarding and independent infrastructure remain open.
-Migration 43 now binds Address Binding selection, Sender Profile authoring and
-Delivery Status signing to fresh retained strict-public decisions in their owning
-transactions. [Signing authority proof](milestone7-production-gate.md#public-signing-authority-slice-migration-43)
-records the focused local checks. Public owner/monitor onboarding, history transport
-and independent infrastructure remain open.
-Migration 44 now implements resumable owner-signed public genesis, a reviewed
-genesis-specific monitor attestation and atomic custody/read/binding activation for
-both custody profiles. [Onboarding proof](milestone7-production-gate.md#public-ownermonitor-onboarding-slice-migration-44)
-records local API/CLI/provider/monitor checks. Real public writes, independently
-operated infrastructure, history transport and recovery/transition proof remain open.
-
-- [ ] Complete reviewed managed-profile specification/conformance rules and
-  public `plc.directory` onboarding with non-disposable identity/recovery material.
-- [ ] Provision independent monitor/read paths and verified bootstrap checkpoints;
-  test alerts, disagreements, gaps and recovery within PLC's recovery window.
-- [ ] Prove cross-host recovery, historical signed-object audit behavior, load
-  limits and restoration with real independently operated infrastructure.
-
-**Acceptance:** portable/managed claims match tested custody and recovery
-guarantees. Private PLC, local backup flags and provider-hosted monitors are
-never relabeled as independent production evidence.
-
-## How to work through this roadmap
-
-Ship one coherent API-plus-CLI slice at a time, reusing existing provider
-services and signing primitives. Each milestone needs focused regression proof,
-the nearest affected typecheck/build/test gates and updated workflow docs.
-Reuse still-current verification results; do not expand scope after acceptance
-passes. Commit working slices separately from deployment changes.
-
-Dependencies:
-
-- [Provider account API](https://github.com/j4crev/hail-server-ts#hailp-account-api).
-- [Custody and implementation decisions](https://github.com/j4crev/hailproto/blob/main/docs/production-portable-custody.md).
-- [Authoritative onboarding rules](https://github.com/j4crev/hailproto/blob/main/spec/account-onboarding.md).
-- [Managed custody v1 candidate](https://github.com/j4crev/hailproto/blob/main/spec/managed-custody.md).
-- [Grant lifecycle](https://github.com/j4crev/hailproto/blob/main/spec/grants.md).
-- [Address Bindings](https://github.com/j4crev/hailproto/blob/main/spec/address-binding.md).
+- [Production gate details](milestone7-production-gate.md)
+- [Custody-transition design](custody-transitions.md)
+- [Device-keystore decision](device-keystore.md)
+- [Milestone 6 CLI verification](milestone6-verification.md)
+- [Documentation index](README.md)
