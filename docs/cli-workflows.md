@@ -93,6 +93,28 @@ claim credentials. Activation still verifies PLC and address publication.
 Initial full-access credentials are issued only after activation. Neither
 custody choice is inferred from whether the caller is human or an agent.
 
+For an explicitly enabled strict-public provider, add the independently provisioned
+monitor origin/key. The first run writes the exact owner-signed genesis and returns
+`monitorRequired`, DID and genesis CID while retaining signup state:
+
+```bash
+hailp account create --provider https://provider.example --address me@provider.example \
+  --custody owner-controlled --vault /secure/account.vault.json \
+  --state /secure/signup.json --credentials /secure/api.credential.json --backup-verified \
+  --monitor-origin https://monitor.example --monitor-key "$monitor_did_key"
+# Enroll the printed DID/CID with reviewed full-state data, complete backfill/poll,
+# then create onboarding-attestation.json on the monitor host.
+hailp account create --provider https://provider.example --address me@provider.example \
+  --custody owner-controlled --vault /secure/account.vault.json \
+  --state /secure/signup.json --credentials /secure/api.credential.json --backup-verified \
+  --monitor-origin https://monitor.example --monitor-key "$monitor_did_key" \
+  --monitor-attestation /secure/onboarding-attestation.json
+```
+
+Never regenerate the state, operation or binding between calls. Local flags do not
+prove that the monitor/readers are independently administered; deployment review and
+external monitor supervision remain required.
+
 Credential creation saves a new secret and exact scope selection before issuance
 and completes the file atomically; repeat with the same output after ambiguity.
 Omitting scope flags inherits permissions; explicit selection must be a nonempty

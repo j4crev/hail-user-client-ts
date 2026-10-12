@@ -13,13 +13,14 @@ const options = {
   file: { type: "string" }, grant: { type: "string" }, did: { type: "string" }, signer: { type: "string" },
   destination: { type: "string" }, username: { type: "string" }, snapshot: { type: "string" },
   consent: { type: "string" }, operation: { type: "string" }, binding: { type: "string" },
+  "monitor-origin": { type: "string" }, "monitor-key": { type: "string" }, "monitor-attestation": { type: "string" },
   help: { type: "boolean", short: "h" }, version: { type: "boolean" },
 } as const;
 
 // One command table owns help, option allowlists and required arguments.
 const commands = [
   ["account show", "", "", "", true, "Read the selected account and current credential metadata."],
-  ["account create", "", "provider address custody vault state credentials backup-verified", "", false, "Explicit private-PLC signup; retains exact artifacts and unlocks both vault keys."],
+  ["account create", "", "provider address custody vault state credentials backup-verified", "monitor-origin monitor-key monitor-attestation", false, "Resumable owner-signed signup; public mode pauses for reviewed monitor enrollment."],
   ["account login", "", "provider did signer vault state credentials scope", "", false, "Issue fresh access using explicit identity or owner-recovery proof."],
   ["account transfer offer", "", "destination vault state", "", true, "Sign/review one exact destination Offer with identity only."],
   ["account transfer status", "", "", "", true, "Read retained source transfer state; expiry never releases a fence."],
@@ -107,6 +108,8 @@ export function parseCommand(args: string[]) {
   if (values.category?.some(value => !value) || values.scope?.some(value => !value)) throw new CliError("USAGE_ERROR", "Categories/scopes must not be empty");
   if (name === "send" && values.category && values.category.length !== 1) throw new CliError("USAGE_ERROR", "Messages select exactly one category");
   if (name === "account create" && !["owner-controlled", "managed"].includes(values.custody!)) throw new CliError("USAGE_ERROR", "Select owner-controlled or managed custody");
+  if (name === "account create" && Boolean(values["monitor-origin"]) !== Boolean(values["monitor-key"])) throw new CliError("USAGE_ERROR", "Use --monitor-origin and --monitor-key together");
+  if (name === "account create" && values["monitor-attestation"] && !values["monitor-key"]) throw new CliError("USAGE_ERROR", "Monitor attestation requires monitor origin/key");
   if (name === "account login" && !["identity", "owner-recovery"].includes(values.signer!)) throw new CliError("USAGE_ERROR", "Select identity or owner-recovery signer");
   for (const key of ["expires-at", "reply-until"] as const) if (values[key] !== undefined &&
     (!/^(0|[1-9][0-9]*)$/.test(values[key]) || !Number.isSafeInteger(Number(values[key])))) throw new CliError("USAGE_ERROR", `--${key} must be a safe Unix timestamp`);

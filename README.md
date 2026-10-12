@@ -94,6 +94,11 @@ not a public command or route.
 See the [CLI roadmap](docs/cli-roadmap.md) for the implemented baseline,
 prioritized milestones and acceptance conditions for remaining work.
 
+Milestone 7 has started with a managed-profile draft and local genesis/retry
+conformance checks. Managed signup now reviews public roles, exact state and PLC
+limits at signing/binding and revalidates retained artifacts even after a vault
+is bound. See [production gate status and next steps](docs/milestone7-production-gate.md).
+
 The versioned developer/agent interface is **0.1.0**, using
 [CLI/API contract v1](docs/cli-contract.md). It includes command-specific help,
 strict options, origin/account assertions, bounded status waiting and multi-page

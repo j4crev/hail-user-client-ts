@@ -280,6 +280,45 @@ deployment or cross-platform binary release.
 
 ### 7. Production federation gate
 
+**Started:** the [managed-profile v1 draft](https://github.com/j4crev/hailproto/blob/main/spec/managed-custody.md)
+defines owner/provider authority and MC-01–MC-14 conformance cases. The first
+local slice validates managed genesis roles/state/limits and rechecks exact
+signed signup artifacts on bound-vault retries. [Verification and remaining
+gate order](milestone7-production-gate.md) records the reference subset; full
+review and independent production deployment remain open.
+The next [read-evidence policy candidate](https://github.com/j4crev/hailproto/blob/main/spec/plc-read-evidence.md)
+now has complete public cutover audit agreement, independent reader/operator
+configuration and monitor migration-3 reviewed bootstrap/backfill/v2 coverage
+checks. Local gates passed (9 provider PLC checks, 16 fenced-transfer integrations,
+14 monitor tests); live independent deployment and full evidence retention remain
+open. See the [updated proof and next slice](milestone7-production-gate.md#read-evidence-and-monitor-bootstrap-slice).
+Provider migration 40 now retains immutable complete cutover bundles and seals
+the exact digest at public activation, with guarded rollback and preserved private
+transfer/return/recovery. [Retention verification](milestone7-production-gate.md#durable-provider-cutover-evidence-slice-migration-40)
+records 10 focused checks and 20 PostgreSQL integrations. Routine public authority,
+onboarding and independently operated infrastructure remain their next gates.
+Migration 41 now provides an explicitly configured strict routine resolver with
+fresh two-reader agreement, immutable read evidence and atomic inbound-envelope
+authority bindings. [Routine authority proof](milestone7-production-gate.md#routine-public-authority-slice-migration-41)
+records 118 non-PostgreSQL checks and 21 PostgreSQL integrations. Remaining action
+bindings, history transport, public owner/monitor onboarding and real independent
+infrastructure stay open.
+Migration 42 now binds strict-public Grant creation, update, revocation and import
+to fresh retained signer/recipient/consent decisions in the same transaction.
+[Grant authority proof](milestone7-production-gate.md#public-grant-authority-slice-migration-42)
+records the focused local checks. Binding/profile/status signing, historical evidence
+transport, public onboarding and independent infrastructure remain open.
+Migration 43 now binds Address Binding selection, Sender Profile authoring and
+Delivery Status signing to fresh retained strict-public decisions in their owning
+transactions. [Signing authority proof](milestone7-production-gate.md#public-signing-authority-slice-migration-43)
+records the focused local checks. Public owner/monitor onboarding, history transport
+and independent infrastructure remain open.
+Migration 44 now implements resumable owner-signed public genesis, a reviewed
+genesis-specific monitor attestation and atomic custody/read/binding activation for
+both custody profiles. [Onboarding proof](milestone7-production-gate.md#public-ownermonitor-onboarding-slice-migration-44)
+records local API/CLI/provider/monitor checks. Real public writes, independently
+operated infrastructure, history transport and recovery/transition proof remain open.
+
 - [ ] Complete reviewed managed-profile specification/conformance rules and
   public `plc.directory` onboarding with non-disposable identity/recovery material.
 - [ ] Provision independent monitor/read paths and verified bootstrap checkpoints;
@@ -304,5 +343,6 @@ Dependencies:
 - [Provider account API](https://github.com/j4crev/hail-server-ts#hailp-account-api).
 - [Custody and implementation decisions](https://github.com/j4crev/hailproto/blob/main/docs/production-portable-custody.md).
 - [Authoritative onboarding rules](https://github.com/j4crev/hailproto/blob/main/spec/account-onboarding.md).
+- [Managed custody v1 candidate](https://github.com/j4crev/hailproto/blob/main/spec/managed-custody.md).
 - [Grant lifecycle](https://github.com/j4crev/hailproto/blob/main/spec/grants.md).
 - [Address Bindings](https://github.com/j4crev/hailproto/blob/main/spec/address-binding.md).

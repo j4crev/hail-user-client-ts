@@ -65,7 +65,8 @@ try {
       printResult(await loginAccount(values.provider!, values.did!, values.signer as "identity" | "owner-recovery",
         values.scope!, values.vault!, values.state!, values.credentials!));
     } else if(group==="account"&&command==="create") {
-      printResult(await createAccount(values.provider!,values.address!,values.custody as "owner-controlled"|"managed",values.vault!,values.state!,values.credentials!));
+      printResult(await createAccount(values.provider!,values.address!,values.custody as "owner-controlled"|"managed",values.vault!,values.state!,values.credentials!,undefined,
+        values["monitor-origin"]?{origin:values["monitor-origin"],publicKey:values["monitor-key"]!,...(values["monitor-attestation"]?{attestationPath:values["monitor-attestation"]}:{})}:undefined));
     } else {
     const credential = values.credentials ?? Bun.env.HAILP_CREDENTIAL_FILE;
     if (!credential) throw new Error("Set --credentials or HAILP_CREDENTIAL_FILE");

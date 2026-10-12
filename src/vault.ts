@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { cidForCbor } from "@atproto/common";
-import { P256Keypair } from "@atproto/crypto";
-import { assureValidSig, didForCreateOp, signOperation, type Operation, type UnsignedOperation } from "@did-plc/lib";
+import { P256Keypair, parseDidKey, P256_JWT_ALG, SECP256K1_JWT_ALG } from "@atproto/crypto";
+import { assureValidSig, def, didForCreateOp, signOperation, type Operation, type UnsignedOperation } from "@did-plc/lib";
+import { isIP } from "node:net";
 import { createWebCryptoSigner, decodeBase64Url, encodeBase64Url, encodeDeterministic, signPayload,
   type HailAddressBinding, type HailGrant, type HailValue } from "@hailproto/codec";
 import * as dagCbor from "@ipld/dag-cbor";
@@ -27,6 +28,37 @@ export interface UserVaultFile {
 }
 
 export interface VaultCreation { vault: UserVaultFile; recoverySecret: Uint8Array; }
+
+// Reference new-genesis subset of the candidate managed-custody v1 profile.
+// This checks public roles/state, not physical custody or production PLC trust.
+export function reviewManagedGenesis(input: UnsignedOperation, vault: UserVaultFile): UnsignedOperation {
+  const operation = def.unsignedOperation.parse(input);
+  const identity = operation.verificationMethods["hail-identity"], messaging = operation.verificationMethods["hail-messaging"];
+  if (operation.prev !== null || operation.rotationKeys.length !== 2 ||
+    operation.rotationKeys[0] !== vault.recovery.publicDidKey || operation.alsoKnownAs.length ||
+    Object.keys(operation.verificationMethods).length !== 2 || Object.keys(operation.services).length !== 1 ||
+    operation.services.hail?.type !== "HailMessaging" || !identity || !messaging ||
+    new Set([...operation.rotationKeys, identity, messaging]).size !== 4 ||
+    [...operation.rotationKeys, identity, messaging].includes(vault.identity.publicDidKey)) {
+    throw new Error("Managed genesis requires four distinct reviewed owner/provider roles and no unexpected state");
+  }
+  for (const key of [identity, messaging]) {
+    if (!key.startsWith("did:key:")) throw new Error("Managed Hail keys must be Ed25519 did:key values");
+    const raw = base58btc.decode(key.slice(8));
+    if (raw.length !== 34 || raw[0] !== 0xed || raw[1] !== 1) throw new Error("Managed Hail keys must be Ed25519 did:key values");
+  }
+  if (![P256_JWT_ALG, SECP256K1_JWT_ALG].includes(parseDidKey(operation.rotationKeys[1]!).jwtAlg)) {
+    throw new Error("Managed provider rotation must use a PLC-supported key");
+  }
+  const endpoint = operation.services.hail.endpoint, url = new URL(endpoint);
+  const path = url.pathname === "/" ? "" : url.pathname;
+  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || isIP(url.hostname) ||
+    url.hostname.split(".").some(label => !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label)) || endpoint !== `${url.origin}${path}` ||
+    path && path.slice(1).split("/").some(segment => !/^[A-Za-z0-9._~-]+$/.test(segment) || segment === "." || segment === "..")) {
+    throw new Error("Managed genesis service must be a canonical HTTPS Hail service base");
+  }
+  return operation;
+}
 
 export interface UserMigrationConsent {
   type: "hail.portable-migration-consent";
@@ -244,11 +276,9 @@ export class UnlockedUserVault {
   }
 
   async signManagedGenesis(unsigned: UnsignedOperation) {
-    if (unsigned.prev !== null || unsigned.rotationKeys[0] !== this.vault.recovery.publicDidKey ||
-      unsigned.verificationMethods["hail-identity"] === this.vault.identity.publicDidKey || unsigned.alsoKnownAs.length !== 0) {
-      throw new Error("Managed genesis requires explicit provider identity and owner-controlled recovery");
-    }
-    const operation = await signOperation(unsigned,this.recovery);
+    if (this.vault.did !== null) throw new Error("Bound vault cannot authorize another managed genesis; retain the original signup state");
+    const operation = await signOperation(reviewManagedGenesis(unsigned, this.vault),this.recovery);
+    if (dagCbor.encode(operation).length > 7500) throw new Error("PLC operation exceeds the directory limit");
     return {operation,did:await didForCreateOp(operation)};
   }
 
@@ -257,6 +287,11 @@ export class UnlockedUserVault {
       signedGenesis.rotationKeys[0] !== this.vault.recovery.publicDidKey ||
       (!managed && signedGenesis.verificationMethods["hail-identity"] !== this.vault.identity.publicDidKey) ||
       !/^did:plc:[a-z2-7]{24}$/.test(did)) throw new Error("Cannot bind vault to this DID");
+    if (managed) {
+      const { sig, ...unsigned } = signedGenesis;
+      reviewManagedGenesis(unsigned, this.vault);
+      if (dagCbor.encode(signedGenesis).length > 7500) throw new Error("PLC operation exceeds the directory limit");
+    }
     await assureValidSig([this.vault.recovery.publicDidKey], signedGenesis);
     if (await didForCreateOp(signedGenesis) !== did) throw new Error("Vault DID does not match exact signed genesis");
     this.vault.did = did;
