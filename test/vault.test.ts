@@ -126,23 +126,49 @@ describe("user-owned portable vault", () => {
     const signedManagedSelection=await client.signManagedTransferOwnerIntent(managedSelection);
     expect((await verifyManagedOwnerHandshake(signedManagedSelection,"hail.managed-transfer-address-selection",
       generated.vault.recovery.publicDidKey)).address).toBe(managedSelection.address);
+    const destinationIdentity=await edDidKey(),destinationMessaging=await edDidKey();
+    const currentState={did:genesis.did,rotationKeys:[generated.vault.recovery.publicDidKey,providerKey.did()],
+      verificationMethods:{...genesis.operation.verificationMethods,"other-role":await edDidKey()},
+      alsoKnownAs:["at://alice.example.com"],services:{...genesis.operation.services,
+        other:{type:"OtherService",endpoint:"https://other.example.com"}}};
+    const cutover=await client.signManagedTransferCutover(currentState,genesis.cid,providerKey.did(),destination.did(),
+      destinationIdentity,destinationMessaging,"https://next.example.com/hail");
     const managedApproval:ManagedTransferApproval={type:"hail.managed-transfer-approval",version:1,did:genesis.did,
       nonce:managedGrant.nonce,transfer_id:managedSelection.transfer_id,source_service_base:managedGrant.source_service_base,
       destination_service_base:managedGrant.destination_service_base,destination_address:managedSelection.address,
       owner_recovery_key:generated.vault.recovery.publicDidKey,source_identity_key:managedSourceIdentity,
-      destination_rotation_key:destination.did(),destination_identity_key:await edDidKey(),destination_messaging_key:await edDidKey(),
+      destination_rotation_key:destination.did(),destination_identity_key:destinationIdentity,destination_messaging_key:destinationMessaging,
       grant_digest:managedSelection.grant_digest,offer_digest:managedSelection.offer_digest,selection_digest:randomBytes(32),
       snapshot_version:4,snapshot_digest:randomBytes(32),history_checkpoint_digest:randomBytes(32),source_generation:1,
-      previous_operation_cid:genesis.cid,operation_cid:"bafy-managed-cutover",issued_at:now,expires_at:now+900};
-    const signedManagedApproval=await client.signManagedTransferOwnerIntent(managedApproval);
+      previous_operation_cid:genesis.cid,operation_cid:cutover.cid,issued_at:now,expires_at:now+900};
+    const signedManagedApproval=await client.signManagedTransferOwnerIntent(managedApproval,cutover.operation);
     expect((await verifyManagedOwnerHandshake(signedManagedApproval,"hail.managed-transfer-approval",
       generated.vault.recovery.publicDidKey)).snapshot_version).toBe(4);
+    await expect(client.signManagedTransferOwnerIntent(managedApproval)).rejects.toThrow("exact owner-signed cutover");
     await expect(client.signManagedTransferOwnerIntent({...managedGrant,owner_recovery_key:destination.did()})).rejects.toThrow("this owner");
+    expect(cutover.did).toBe(genesis.did);
+    expect(cutover.operation).toMatchObject({prev:genesis.cid,
+      rotationKeys:[generated.vault.recovery.publicDidKey,destination.did()],
+      verificationMethods:{"hail-identity":destinationIdentity,"hail-messaging":destinationMessaging,
+        "other-role":currentState.verificationMethods["other-role"]},
+      alsoKnownAs:currentState.alsoKnownAs,services:{hail:{type:"HailMessaging",endpoint:"https://next.example.com/hail"},
+        other:currentState.services.other}});
+    expect(JSON.parse(new TextDecoder().decode(cutover.operationBytes))).toEqual(cutover.operation);
+    expect((await assureValidSig([generated.vault.recovery.publicDidKey],cutover.operation)))
+      .toBe(generated.vault.recovery.publicDidKey);
+    await expect(client.signManagedTransferCutover(currentState,genesis.cid,providerKey.did(),destination.did(),
+      currentState.verificationMethods["other-role"],destinationMessaging,"https://next.example.com/hail"))
+      .rejects.toThrow("distinct and fresh");
+    await expect(client.signManagedTransferCutover(currentState,genesis.cid,destination.did(),providerKey.did(),
+      destinationIdentity,destinationMessaging,"https://next.example.com/hail"))
+      .rejects.toThrow("current source rotation");
     const managedIdentity=await edDidKey(),transitionId=randomUUID(),history=randomBytes(32),bindingDigest=randomBytes(32);
     const transitionPreparation={transitionId,accountId:randomUUID(),did:genesis.did,
       direction:"owner-to-managed",ownerRecoveryKey:generated.vault.recovery.publicDidKey,
       oldIdentityKey:generated.vault.identity.publicDidKey,newIdentityKey:managedIdentity,
       providerServiceBase:"https://provider.example.com/hail",previousOperationCid:genesis.cid,
+      currentState:{did:genesis.did,rotationKeys:genesis.operation.rotationKeys,
+        verificationMethods:genesis.operation.verificationMethods,alsoKnownAs:genesis.operation.alsoKnownAs,services:genesis.operation.services},
       unsignedOperation:{type:"plc_operation",prev:genesis.cid,rotationKeys:genesis.operation.rotationKeys,
         verificationMethods:{...genesis.operation.verificationMethods,"hail-identity":managedIdentity},
         alsoKnownAs:genesis.operation.alsoKnownAs,services:genesis.operation.services},historyCheckpointDigest:history,
@@ -155,11 +181,15 @@ describe("user-owned portable vault", () => {
     expect(await verifySignature(generated.vault.recovery.publicDidKey,proof,transition.approvalSignature,{jwtAlg:"ES256"})).toBe(true);
     expect((decodeDeterministic(transition.approvalBytes) as {operation_cid:string}).operation_cid).toBe(transition.operationCid);
     await expect(client.signManagedCustodyTransition({...transitionPreparation,newIdentityKey:generated.vault.identity.publicDidKey})).rejects.toThrow();
+    await expect(client.signManagedCustodyTransition({...transitionPreparation,unsignedOperation:{...transitionPreparation.unsignedOperation,
+      services:{...transitionPreparation.unsignedOperation.services,other:{type:"OtherService",endpoint:"https://other.example.com"}}}})).rejects.toThrow();
     const replacement=await replaceUserIdentity(JSON.parse(JSON.stringify(client.vault)),generated.recoverySecret);
     expect(replacement.vault.recovery.publicDidKey).toBe(client.vault.recovery.publicDidKey);
     expect(replacement.vault.identity.publicDidKey).not.toBe(client.vault.identity.publicDidKey);
     const reverse=await replacement.signManagedCustodyTransition({...transitionPreparation,direction:"managed-to-owner",
       oldIdentityKey:managedIdentity,newIdentityKey:replacement.vault.identity.publicDidKey,
+      currentState:{...transitionPreparation.currentState,verificationMethods:{...transitionPreparation.currentState.verificationMethods,
+        "hail-identity":managedIdentity}},
       unsignedOperation:{...transitionPreparation.unsignedOperation,
         verificationMethods:{...transitionPreparation.unsignedOperation.verificationMethods,"hail-identity":replacement.vault.identity.publicDidKey}},
       generationFrom:2,generationTo:3});

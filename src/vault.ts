@@ -1,7 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { cidForCbor } from "@atproto/common";
 import { P256Keypair, parseDidKey, P256_JWT_ALG, SECP256K1_JWT_ALG } from "@atproto/crypto";
-import { assureValidSig, def, didForCreateOp, signOperation, type Operation, type UnsignedOperation } from "@did-plc/lib";
+import { assureValidSig, def, didForCreateOp, signOperation, type DocumentData, type Operation, type UnsignedOperation } from "@did-plc/lib";
 import { isIP } from "node:net";
 import { createWebCryptoSigner, decodeBase64Url, encodeBase64Url, encodeDeterministic, signPayload,
   type HailAddressBinding, type HailGrant, type HailValue } from "@hailproto/codec";
@@ -126,7 +127,7 @@ export interface UserTransferRecoveryApproval {
 export interface ManagedCustodyTransitionPreparation {
   transitionId:string;accountId:string;did:string;direction:"owner-to-managed"|"managed-to-owner";
   ownerRecoveryKey:string;oldIdentityKey:string;newIdentityKey:string;
-  providerServiceBase:string;unsignedOperation:UnsignedOperation;previousOperationCid:string;
+  providerServiceBase:string;currentState:DocumentData;unsignedOperation:UnsignedOperation;previousOperationCid:string;
   historyCheckpointDigest:Uint8Array;bindingDigest:Uint8Array;generationFrom:number;generationTo:number;expiresAt:string;
 }
 export interface ManagedCustodyTransitionApproval {
@@ -308,7 +309,8 @@ export class UnlockedUserVault {
     input.set(tag);input.set(payloadBytes,tag.length);return {payloadBytes,signature:await this.recovery.sign(input)};
   }
 
-  async signManagedTransferOwnerIntent(value:ManagedTransferGrant|ManagedTransferAddressSelection|ManagedTransferApproval) {
+  async signManagedTransferOwnerIntent(value:ManagedTransferGrant|ManagedTransferAddressSelection|ManagedTransferApproval,
+    operation?:Operation) {
     if(!this.vault.did||value.did!==this.vault.did||value.version!==1||
       !["hail.managed-transfer-grant","hail.managed-transfer-address-selection","hail.managed-transfer-approval"].includes(value.type)||
       !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(value.nonce)||
@@ -329,6 +331,14 @@ export class UnlockedUserVault {
         value.history_checkpoint_digest.length!==32||!Number.isSafeInteger(value.source_generation)||value.source_generation<1||
         !value.previous_operation_cid||!value.operation_cid||value.previous_operation_cid===value.operation_cid)
         throw new Error("Managed transfer approval must bind the exact v4 cutover and current owner");
+      if(!operation||operation.prev!==value.previous_operation_cid||operation.rotationKeys.length!==2||
+        operation.rotationKeys[0]!==value.owner_recovery_key||operation.rotationKeys[1]!==value.destination_rotation_key||
+        operation.verificationMethods["hail-identity"]!==value.destination_identity_key||
+        operation.verificationMethods["hail-messaging"]!==value.destination_messaging_key||
+        operation.services.hail?.type!=="HailMessaging"||operation.services.hail.endpoint!==value.destination_service_base||
+        (await cidForCbor(operation)).toString()!==value.operation_cid||
+        await assureValidSig([this.vault.recovery.publicDidKey],operation)!==this.vault.recovery.publicDidKey)
+        throw new Error("Managed transfer approval differs from the exact owner-signed cutover operation");
     }
     const payloadBytes=encodeDeterministic(value as unknown as HailValue),tag=new TextEncoder().encode(`${value.type}.v1\0`);
     const input=new Uint8Array(tag.length+payloadBytes.length);input.set(tag);input.set(payloadBytes,tag.length);
@@ -350,17 +360,73 @@ export class UnlockedUserVault {
     return { operation, dagCbor: dagCborBytes, cid: (await cidForCbor(operation)).toString(), did };
   }
 
+  async signManagedTransferCutover(currentState: DocumentData, previousOperationCid: string,
+    sourceRotationPublicKey: string, destinationRotationPublicKey: string,
+    destinationIdentityPublicKey: string, destinationMessagingPublicKey: string,
+    destinationServiceBase: string): Promise<{ operation: Operation; operationBytes: Uint8Array;
+      dagCbor: Uint8Array; cid: string; did: string }> {
+    const current = def.documentData.parse(currentState);
+    if (!this.vault.did || current.did !== this.vault.did ||
+      current.rotationKeys[0] !== this.vault.recovery.publicDidKey ||
+      sourceRotationPublicKey === this.vault.recovery.publicDidKey ||
+      !current.rotationKeys.includes(sourceRotationPublicKey)) {
+      throw new Error("Managed cutover requires this bound owner and the current source rotation role");
+    }
+    const destinationKeys = [destinationRotationPublicKey, destinationIdentityPublicKey,
+      destinationMessagingPublicKey];
+    const currentKeys = new Set([...current.rotationKeys, ...Object.values(current.verificationMethods)]);
+    if (new Set(destinationKeys).size !== destinationKeys.length ||
+      destinationKeys.some(key => currentKeys.has(key))) {
+      throw new Error("Managed cutover destination roles must be distinct and fresh");
+    }
+    if (![P256_JWT_ALG, SECP256K1_JWT_ALG].includes(parseDidKey(destinationRotationPublicKey).jwtAlg)) {
+      throw new Error("Managed destination rotation must use a PLC-supported key");
+    }
+    for (const key of [destinationIdentityPublicKey, destinationMessagingPublicKey]) {
+      if (!key.startsWith("did:key:")) throw new Error("Managed destination Hail roles must use Ed25519 did:key values");
+      const raw = base58btc.decode(key.slice("did:key:".length));
+      if (raw.length !== 34 || raw[0] !== 0xed || raw[1] !== 0x01) {
+        throw new Error("Managed destination Hail roles must use Ed25519 did:key values");
+      }
+    }
+    const url = new URL(destinationServiceBase), path = url.pathname === "/" ? "" : url.pathname;
+    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || isIP(url.hostname) ||
+      url.hostname.split(".").some(label => !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label)) ||
+      destinationServiceBase !== `${url.origin}${path}` ||
+      path && path.slice(1).split("/").some(segment => !/^[A-Za-z0-9._~-]+$/.test(segment) || segment === "." || segment === "..")) {
+      throw new Error("Managed destination service must be a canonical HTTPS Hail service base");
+    }
+    const unsigned = def.unsignedOperation.parse({ type: "plc_operation", prev: previousOperationCid,
+      rotationKeys: [...current.rotationKeys.filter(key => key !== sourceRotationPublicKey), destinationRotationPublicKey],
+      verificationMethods: { ...current.verificationMethods, "hail-identity": destinationIdentityPublicKey,
+        "hail-messaging": destinationMessagingPublicKey },
+      alsoKnownAs: current.alsoKnownAs,
+      services: { ...current.services, hail: { type: "HailMessaging", endpoint: destinationServiceBase } } });
+    const operation = await signOperation(unsigned, this.recovery);
+    const dagCborBytes = new Uint8Array(dagCbor.encode(operation));
+    if (dagCborBytes.length > 7500) throw new Error("PLC operation exceeds the directory limit");
+    return { operation, operationBytes: new TextEncoder().encode(JSON.stringify(operation)),
+      dagCbor: dagCborBytes, cid: (await cidForCbor(operation)).toString(), did: this.vault.did };
+  }
+
   async signManagedCustodyTransition(prepared:ManagedCustodyTransitionPreparation) {
     const now=Math.floor(Date.now()/1000),expiry=Math.floor(new Date(prepared.expiresAt).getTime()/1000);
+    const current=def.documentData.parse(prepared.currentState),unsigned=def.unsignedOperation.parse(prepared.unsignedOperation);
+    if(!prepared.newIdentityKey.startsWith("did:key:"))throw new Error("Managed custody identity must be an Ed25519 did:key value");
+    const identityBytes=base58btc.decode(prepared.newIdentityKey.slice("did:key:".length));
+    const expected=def.unsignedOperation.parse({type:"plc_operation",prev:prepared.previousOperationCid,
+      rotationKeys:current.rotationKeys,verificationMethods:{...current.verificationMethods,"hail-identity":prepared.newIdentityKey},
+      alsoKnownAs:current.alsoKnownAs,services:current.services});
     if(!this.vault.did||prepared.did!==this.vault.did||!["owner-to-managed","managed-to-owner"].includes(prepared.direction)||
       prepared.ownerRecoveryKey!==this.vault.recovery.publicDidKey||
       (prepared.direction==="owner-to-managed"?prepared.oldIdentityKey!==this.vault.identity.publicDidKey:prepared.newIdentityKey!==this.vault.identity.publicDidKey)||
-      prepared.unsignedOperation.prev!==prepared.previousOperationCid||prepared.unsignedOperation.rotationKeys[0]!==this.vault.recovery.publicDidKey||
-      prepared.unsignedOperation.verificationMethods["hail-identity"]!==prepared.newIdentityKey||prepared.newIdentityKey===prepared.oldIdentityKey||
+      current.did!==prepared.did||current.rotationKeys[0]!==this.vault.recovery.publicDidKey||
+      current.verificationMethods["hail-identity"]!==prepared.oldIdentityKey||!isDeepStrictEqual(unsigned,expected)||
+      identityBytes.length!==34||identityBytes[0]!==0xed||identityBytes[1]!==0x01||prepared.newIdentityKey===prepared.oldIdentityKey||
       prepared.historyCheckpointDigest.length!==32||prepared.bindingDigest.length!==32||
       prepared.generationTo!==prepared.generationFrom+1||!Number.isSafeInteger(expiry)||expiry<=now)
       throw new Error("Managed custody preparation does not match this bound owner vault");
-    const operation=await signOperation(def.unsignedOperation.parse(prepared.unsignedOperation),this.recovery);
+    const operation=await signOperation(unsigned,this.recovery);
     const operationBytes=new TextEncoder().encode(JSON.stringify(operation));
     if(new Uint8Array(dagCbor.encode(operation)).length>7500)throw new Error("PLC operation exceeds the directory limit");
     const operationCid=(await cidForCbor(operation)).toString();

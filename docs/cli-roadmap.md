@@ -40,6 +40,10 @@ protocol boundary.
 - The reverse managed → owner-controlled path generates a fresh client-held
   identity, preserves the owner recovery and monitored history, and uses the same
   acknowledged-Grant, exact-retry and atomic generation guarantees.
+- Native managed A → B migration now has local-only proof through owner-signed
+  cutover approval and inert destination staging. It validates the exact
+  snapshot-v4 history and handshake, prepares a destination-signed binding, and
+  does not submit to PLC or activate the destination account.
 
 The private-PLC deployments and local proof environment do not establish public
 production readiness or independent monitoring.

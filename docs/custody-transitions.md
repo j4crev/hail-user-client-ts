@@ -104,7 +104,11 @@ never forwarded; destination credentials are established by explicit owner login
 4. The owner signs the complete reviewed PLC operation and final transition
    approval. Keep `U` first; replace only `hail-identity` for this same-provider
    action. Preserve current messaging/service and the lower rotation key unless
-   separate reviewed authority explicitly changes them.
+   separate reviewed authority explicitly changes them. The client compares the
+   exact pre-transition state with the proposed operation and refuses any other
+   alias, service, verification-method or rotation-key change. That comparison
+   does not replace independent-reader proof that the supplied pre-transition
+   state is the current public PLC state.
 5. Submit the same operation until its exact CID is observed, using the existing
    PLC trust gate. Unknown intervening operations require recovery classification,
    not automatic rebasing on an unapproved predecessor.
@@ -175,16 +179,32 @@ independent reader/monitor operation.
   The versioned grant, source acknowledgement, selection and exact snapshot-v4
   approval validators are implemented. Source admission is durable and refuses
   changed retries; destination ingress returns the exact retained Offer, and the
-  owner vault can sign each owner artifact. Authenticated API/CLI orchestration remains.
+  owner vault can sign each owner artifact. The authenticated source API, pinned
+  destination HTTPS route and separate durable managed-Offer retry worker are
+  implemented locally. B now atomically reserves the owner-selected address,
+  signs the exact reservation and durably retries its signed fence request to
+  A. CLI orchestration remains.
 - [x] Destination Offer: fresh B identity, messaging and rotation keys, with all
   private material encrypted and retained only at B.
-- [ ] Managed snapshot v4: source-attributed public custody/history evidence and
-  public role metadata only; no provider/client private key or bearer credential.
-- [ ] Source fence/export: acknowledged active Grant predecessors only, complete
-  history checkpoint, leases drained and ordinary writes blocked.
-- [ ] Owner-approved cutover: exact PLC operation removes A identity/messaging/
-  rotation authority and installs B's fresh roles without changing top recovery.
-- [ ] Destination materialization: verified binding, managed custody record,
+- [x] Managed snapshot v4: the local exporter carries source-attributed managed
+  custody, serving generation, exact authority/Grant/binding/PLC history and
+  public role metadata only. Its validator rejects history-checkpoint changes;
+  provider/client private keys and bearer credentials are excluded.
+- [x] Source fence/export: the managed source fence validates the exact
+  owner grant, A acknowledgement, B Offer, owner selection, B reservation and
+  B fence request against strict current custody. It refuses active worker
+  leases and unacknowledged active Grant predecessors, then blocks ordinary
+  writes. Export is immutable, source-messaging signed and exact-retryable.
+- [x] Owner-approved cutover evidence and inert staging: the owner vault builds
+  and signs an exact PLC operation that removes A's rotation role, installs B's
+  fresh identity/messaging/rotation roles, preserves top recovery and unrelated
+  PLC state, and enforces the PLC size limit. The owner-recovery approval binds
+  that operation to the exact handshake, snapshot-v4 digest and history
+  checkpoint. B revalidates current strict A authority, every retained artifact
+  and B's prepared private-key possession, creates a B-identity-signed binding,
+  and stores one exact-retryable inactive import. No account is materialized and
+  no PLC operation is submitted by this gate.
+- [ ] PLC submission/observation and destination materialization: verified binding, managed custody record,
   Grant successors, accepted work/history, fresh generation and credentials.
 - [ ] Source retirement and exact retry/recovery under lost Offer, export, PLC,
   activation and retirement responses.
