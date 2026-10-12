@@ -4,10 +4,12 @@ import { assureValidSig, validateOperationLog } from "@did-plc/lib";
 import { createWebCryptoVerifier, decodeDeterministic, verifySignedPayload, type HailAddressBinding, type HailGrant } from "@hailproto/codec";
 import { base58btc } from "multiformats/bases/base58";
 import { describe, expect, it } from "vitest";
-import { createUserVault, unlockUserVault, type UserMigrationConsent, type UserTransferGrant,
-  type UserTransferAddressSelection, type UserTransferCancellation, type UserVaultFile } from "../src/vault.js";
+import { createUserVault, replaceUserIdentity, unlockUserVault, type UserMigrationConsent, type UserTransferGrant,
+  type UserTransferAddressSelection, type UserTransferCancellation, type UserVaultFile,
+  type ManagedTransferGrant,type ManagedTransferAddressSelection,type ManagedTransferApproval } from "../src/vault.js";
 import { verifyPortableMigrationConsent } from "../../hail-server-ts/src/migration/consent.js";
 import { verifyHandshake } from "../../hail-server-ts/src/migration/handshake.js";
+import {verifyManagedOwnerHandshake} from "../../hail-server-ts/src/migration/managed-handshake.js";
 
 async function edDidKey() {
   const pair = (await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])) as CryptoKeyPair;
@@ -110,6 +112,32 @@ describe("user-owned portable vault", () => {
     expect((await verifyHandshake(await client.signTransferCancellation(cancellation),
       "hail.transfer-cancellation", generated.vault.identity.publicDidKey)).nonce)
       .toBe(transfer.nonce);
+    const managedSourceIdentity=await edDidKey(),managedGrant:ManagedTransferGrant={type:"hail.managed-transfer-grant",version:1,
+      did:genesis.did,nonce:randomUUID(),source_service_base:consent.source_service_base,
+      destination_service_base:consent.destination_service_base,destination_domain:"next.example.com",
+      owner_recovery_key:generated.vault.recovery.publicDidKey,source_identity_key:managedSourceIdentity,
+      issued_at:now,expires_at:now+1800};
+    const signedManagedGrant=await client.signManagedTransferOwnerIntent(managedGrant);
+    expect((await verifyManagedOwnerHandshake(signedManagedGrant,"hail.managed-transfer-grant",
+      generated.vault.recovery.publicDidKey)).source_identity_key).toBe(managedSourceIdentity);
+    const managedSelection:ManagedTransferAddressSelection={type:"hail.managed-transfer-address-selection",version:1,
+      did:genesis.did,nonce:managedGrant.nonce,transfer_id:randomUUID(),grant_digest:randomBytes(32),offer_digest:randomBytes(32),
+      address:"alice@next.example.com",selection_nonce:randomUUID(),issued_at:now,expires_at:now+900};
+    const signedManagedSelection=await client.signManagedTransferOwnerIntent(managedSelection);
+    expect((await verifyManagedOwnerHandshake(signedManagedSelection,"hail.managed-transfer-address-selection",
+      generated.vault.recovery.publicDidKey)).address).toBe(managedSelection.address);
+    const managedApproval:ManagedTransferApproval={type:"hail.managed-transfer-approval",version:1,did:genesis.did,
+      nonce:managedGrant.nonce,transfer_id:managedSelection.transfer_id,source_service_base:managedGrant.source_service_base,
+      destination_service_base:managedGrant.destination_service_base,destination_address:managedSelection.address,
+      owner_recovery_key:generated.vault.recovery.publicDidKey,source_identity_key:managedSourceIdentity,
+      destination_rotation_key:destination.did(),destination_identity_key:await edDidKey(),destination_messaging_key:await edDidKey(),
+      grant_digest:managedSelection.grant_digest,offer_digest:managedSelection.offer_digest,selection_digest:randomBytes(32),
+      snapshot_version:4,snapshot_digest:randomBytes(32),history_checkpoint_digest:randomBytes(32),source_generation:1,
+      previous_operation_cid:genesis.cid,operation_cid:"bafy-managed-cutover",issued_at:now,expires_at:now+900};
+    const signedManagedApproval=await client.signManagedTransferOwnerIntent(managedApproval);
+    expect((await verifyManagedOwnerHandshake(signedManagedApproval,"hail.managed-transfer-approval",
+      generated.vault.recovery.publicDidKey)).snapshot_version).toBe(4);
+    await expect(client.signManagedTransferOwnerIntent({...managedGrant,owner_recovery_key:destination.did()})).rejects.toThrow("this owner");
     const managedIdentity=await edDidKey(),transitionId=randomUUID(),history=randomBytes(32),bindingDigest=randomBytes(32);
     const transitionPreparation={transitionId,accountId:randomUUID(),did:genesis.did,
       direction:"owner-to-managed",ownerRecoveryKey:generated.vault.recovery.publicDidKey,
@@ -127,6 +155,16 @@ describe("user-owned portable vault", () => {
     expect(await verifySignature(generated.vault.recovery.publicDidKey,proof,transition.approvalSignature,{jwtAlg:"ES256"})).toBe(true);
     expect((decodeDeterministic(transition.approvalBytes) as {operation_cid:string}).operation_cid).toBe(transition.operationCid);
     await expect(client.signManagedCustodyTransition({...transitionPreparation,newIdentityKey:generated.vault.identity.publicDidKey})).rejects.toThrow();
+    const replacement=await replaceUserIdentity(JSON.parse(JSON.stringify(client.vault)),generated.recoverySecret);
+    expect(replacement.vault.recovery.publicDidKey).toBe(client.vault.recovery.publicDidKey);
+    expect(replacement.vault.identity.publicDidKey).not.toBe(client.vault.identity.publicDidKey);
+    const reverse=await replacement.signManagedCustodyTransition({...transitionPreparation,direction:"managed-to-owner",
+      oldIdentityKey:managedIdentity,newIdentityKey:replacement.vault.identity.publicDidKey,
+      unsignedOperation:{...transitionPreparation.unsignedOperation,
+        verificationMethods:{...transitionPreparation.unsignedOperation.verificationMethods,"hail-identity":replacement.vault.identity.publicDidKey}},
+      generationFrom:2,generationTo:3});
+    expect(reverse.operation.verificationMethods["hail-identity"]).toBe(replacement.vault.identity.publicDidKey);
+    expect((decodeDeterministic(reverse.approvalBytes) as {direction:string}).direction).toBe("managed-to-owner");
     generated.recoverySecret.fill(0);
   });
 });

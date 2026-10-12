@@ -30,6 +30,7 @@ const commands = [
   ["account transfer sign-cutover", "", "vault state snapshot consent operation binding", "", false, "Offline full-vault signing; retain the exact PLC operation, consent and binding."],
   ["account transfer complete", "", "state snapshot", "", false, "Submit retained artifacts, activate destination and retire source; no bearer or key unlock."],
   ["account custody managed", "", "state", "vault", true, "Rotate owner-controlled identity into same-provider managed custody; retain state for exact retries."],
+  ["account custody owner-controlled", "", "vault state backup-verified", "", true, "Rotate managed identity into fresh client-held custody; verify backup and retain exact retry state."],
   ["vault create", "", "vault recovery-file", "", false, "Create two private files: encrypted vault and separate encryption secret."],
   ["vault verify", "", "vault", "expected-did", false, "Unlock/verify both keys offline; optionally assert DID or unbound."],
   ["vault backup", "", "vault output", "", false, "Verify both keys and save an exact independent private copy."],

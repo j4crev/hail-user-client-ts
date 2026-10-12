@@ -37,6 +37,9 @@ protocol boundary.
   provider-held identity with owner-signed PLC/transition approval, acknowledged
   Grant successors, exact retry state, one atomic custody/generation cutover,
   and terminal old credentials/leases.
+- The reverse managed → owner-controlled path generates a fresh client-held
+  identity, preserves the owner recovery and monitored history, and uses the same
+  acknowledged-Grant, exact-retry and atomic generation guarantees.
 
 The private-PLC deployments and local proof environment do not establish public
 production readiness or independent monitoring.
@@ -48,8 +51,8 @@ production readiness or independent monitoring.
    identity and recovery material.
 3. Operate monitor/read paths independently from providers and test bootstrap,
    disagreement, gaps, alerts, and recovery inside the PLC recovery window.
-4. Complete the reverse managed → owner-controlled transition and managed
-   provider migration while preserving transported history and rollback safety.
+4. Complete managed provider migration while preserving transported history,
+   fresh destination keys and rollback safety.
 5. Prove cross-host restoration, historical signed-object audits, and load
    limits on independently operated infrastructure.
 6. Integrate device-keystore or hardware protection and verify cross-platform

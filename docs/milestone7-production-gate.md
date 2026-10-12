@@ -259,7 +259,7 @@ write recovery, stale-monitor rollback, immutable evidence, guarded rollback and
 activation retry. Readers, PLC and monitor are fixtures: no public registry write,
 independent deployment, real alert delivery or external supervision was performed.
 
-## Same-provider custody-transition slice (migration 45)
+## Same-provider custody-transition slice (migrations 45–46)
 
 Migration **45** implements the first positive MC-11 direction:
 owner-controlled → managed at the current provider. Preparation durably retains
@@ -285,7 +285,16 @@ PostgreSQL proof covers lost-response recovery, changed operation/approval
 refusal, exact completion replay, preserved signed predecessor bytes, unchanged
 terminal Grants, single active custody, credential/lease invalidation, generation
 advance, and guarded rollback. It uses local PLC/read fixtures and does not prove
-public infrastructure, reverse custody, or managed provider migration.
+public infrastructure or managed provider migration.
+
+Migration **46** adds the reverse managed → owner-controlled direction without
+exporting the provider identity key or promoting the vault's unused managed-era
+identity. The client first persists a fresh encrypted identity, then signs the
+reviewed binding and every acknowledged active Grant successor. The owner recovery
+key authorizes the same exact PLC/history/generation approval used by the forward
+path. Atomic materialization deletes the provider identity secret and managed
+record before installing portable custody evidence; terminal Grants and original
+representations remain unchanged. Rollback is refused once reverse evidence exists.
 
 ## Remaining gates and next implementation order
 
@@ -295,7 +304,7 @@ public infrastructure, reverse custody, or managed provider migration.
 | Shared PLC authority policy | Opt-in strict fresh routine resolver, immutable cutover/read bundles and envelope/Grant/binding/profile/status action bindings locally implemented | Review current/recovery-window policy and preserve authority history across transfer/restoration |
 | Independent monitor/bootstrap | Reviewed checkpoint, contiguous catch-up, fresh transfer v2 and onboarding-genesis attestations locally tested; same-VPS deployment remains non-independent | Independently administered hosts/readers, external health supervision and real alert/outage/recovery proof |
 | Public onboarding | Opt-in owner/monitor API/CLI ceremony, exact write/readback and immutable activation evidence locally tested | Real public write, non-disposable owner backup/monitor deployment, abuse controls and cross-host operational proof |
-| Historical reconciliation / managed transitions | Owner-controlled → managed same-provider path proves acknowledged predecessors, fresh identity, preserved terminal/history bytes and atomic generation/custody cutover | Reverse custody, unacknowledged/nullified-branch reconciliation and managed provider moves |
+| Historical reconciliation / managed transitions | Both same-provider custody directions prove acknowledged predecessors, fresh intended-party identity, preserved terminal/history bytes and atomic generation/custody cutover | Unacknowledged/nullified-branch reconciliation and managed provider moves |
 | Cross-host operation/restoration/load | Local/private continuity and migration proofs | Independently operated infrastructure, calibrated limits and latest accepted-state/ownership restoration under failures |
 
 The first history-transport slice now versions new portable snapshots as v3 and
@@ -314,9 +323,10 @@ history and tamper refusal, and the two-race private forward/return/recovery
 integration through the real CLI. These use disposable local databases and do not
 prove independent cross-host restoration.
 
-The next coherent implementation slice is the reverse managed → owner-controlled
-transition, while deployment work must exercise onboarding and v3 history
-restoration against real independently operated readers/monitor and public PLC.
+The next coherent implementation slice is cross-provider managed migration.
+Deployment work must later exercise onboarding and v3 history restoration against
+real independently operated readers/monitor and public PLC, deliberately outside
+these local migration tests.
 Local implementation does not settle pre-migration historical authority,
 nullified-branch reconciliation or operational independence.
 Production infrastructure still needs explicit independent hosts/operators, durable

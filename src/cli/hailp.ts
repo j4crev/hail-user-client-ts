@@ -19,7 +19,7 @@ import { loginAccount } from "../account-login.js";
 import { renewBinding,showBinding } from "../binding-renewal.js";
 import { updateGrant } from "../grant-update.js";
 import { transferOffer,transferStatus,cancelTransfer,selectTransferAddress,exportTransferSnapshot,signAccountTransferCutover,completeAccountTransfer } from "../account-transfer.js";
-import { transitionToManaged } from "../custody-transition.js";
+import { transitionToManaged,transitionToOwner } from "../custody-transition.js";
 
 try {
   const parsed = parseCommand(Bun.argv.slice(2));
@@ -66,7 +66,8 @@ try {
       const credential=values.credentials ?? Bun.env.HAILP_CREDENTIAL_FILE;
       if(!credential)throw new Error("Set --credentials or HAILP_CREDENTIAL_FILE");
       const client=await AccountApiClient.fromCredentialFile(credential,selection);
-      printResult(await transitionToManaged(client,values.vault,values.state!));
+      printResult(argument==="owner-controlled"?await transitionToOwner(client,values.vault!,values.state!):
+        await transitionToManaged(client,values.vault,values.state!));
     } else if(group==="account"&&command==="login") {
       printResult(await loginAccount(values.provider!, values.did!, values.signer as "identity" | "owner-recovery",
         values.scope!, values.vault!, values.state!, values.credentials!));

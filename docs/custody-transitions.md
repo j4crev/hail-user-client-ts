@@ -1,8 +1,8 @@
 # Custody changes, managed migration and return transfers
 
-Status: milestone-7 reference design. The strict-public, same-provider
-owner-controlled → managed slice is implemented; reverse and cross-provider
-managed transitions remain disabled. This document specifies the local lifecycle
+Status: milestone-7 reference design. Both strict-public same-provider custody
+directions are implemented; cross-provider managed transitions remain disabled.
+This document specifies the local lifecycle
 and its implementation gates; it does not amend Hail federation formats or settle
 production historical PLC authority. The [protocol custody direction](https://github.com/j4crev/hailproto/blob/main/docs/production-portable-custody.md#managed-profiles-and-people-or-agents),
 [DID profile](https://github.com/j4crev/hailproto/blob/main/spec/did-profile.md#provider-migration)
@@ -160,14 +160,49 @@ accepted envelope bytes, resetting attempts, extending deadlines or inventing
 semantic status revisions. Old workers remain fenced. Expired work follows the
 existing delivery deadline rules after continuation.
 
+### Native managed migration implementation checklist
+
+This checklist tracks the narrow MC-12 slice. It remains local-only until every
+item has focused proof; it must not contact public PLC infrastructure or claim
+independent reader/monitor operation.
+
+- [x] Bidirectional same-provider custody rotation with fresh intended-party
+  identity, acknowledged Grant successors, exact retries and atomic generations.
+- [x] Migration 47: durable managed-transfer profile, source/destination custody
+  declarations, fresh destination identity material and guarded rollback.
+- [ ] Owner-recovery handshake: one exact A → B intent and address selection;
+  provider identity signatures cannot substitute for owner authorization.
+  The versioned grant, source acknowledgement, selection and exact snapshot-v4
+  approval validators are implemented. Source admission is durable and refuses
+  changed retries; destination ingress returns the exact retained Offer, and the
+  owner vault can sign each owner artifact. Authenticated API/CLI orchestration remains.
+- [x] Destination Offer: fresh B identity, messaging and rotation keys, with all
+  private material encrypted and retained only at B.
+- [ ] Managed snapshot v4: source-attributed public custody/history evidence and
+  public role metadata only; no provider/client private key or bearer credential.
+- [ ] Source fence/export: acknowledged active Grant predecessors only, complete
+  history checkpoint, leases drained and ordinary writes blocked.
+- [ ] Owner-approved cutover: exact PLC operation removes A identity/messaging/
+  rotation authority and installs B's fresh roles without changing top recovery.
+- [ ] Destination materialization: verified binding, managed custody record,
+  Grant successors, accepted work/history, fresh generation and credentials.
+- [ ] Source retirement and exact retry/recovery under lost Offer, export, PLC,
+  activation and retirement responses.
+- [ ] Disposable-database A → B → A proof including stale workers, terminal
+  Grants, history bytes, changed-artifact refusal and guarded rollback.
+
+The narrow slice refuses unacknowledged/conflicting Grant predecessors, nullified
+or disputed PLC history, mixed custody, non-strict authority and pre-existing
+destination ownership. Those cases remain separate reconciliation work.
+
 ## Historical identity and binding gate
 
-The implemented owner-controlled → managed path accepts only active authoritative
+The implemented same-provider paths accept only active authoritative
 Grant lineages whose current publication is acknowledged. It precomputes a
 higher revision with unchanged authorization/consent and the exact predecessor,
 then installs those successors in the custody transaction. Terminal lineages are
-left unchanged. Unacknowledged and conflicting predecessors still block. Reverse
-and cross-provider identity-changing paths remain disabled until their equivalent
+left unchanged. Unacknowledged and conflicting predecessors still block.
+Cross-provider identity-changing paths remain disabled until their equivalent
 historical-key proof exists.
 
 - Retain each original COSE representation/digest, exact signer public key,

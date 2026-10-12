@@ -312,8 +312,22 @@ and repeat the same command with the same state path. `--vault` is optional on
 that retry because the retained signed artifacts are reused. Do not delete the
 state file until the command reports `custodyProfile: "managed"`.
 
-Managed → owner-controlled custody and cross-provider managed transfer are not
-implemented by this command.
+To return a managed account to fresh client-held identity custody, first make an
+independent backup of the vault/recovery secret, then run:
+
+```bash
+hailp account custody owner-controlled \
+  --vault /secure/account/vault.json \
+  --state /secure/account/custody-transition.json \
+  --backup-verified
+```
+
+The CLI replaces the vault's inactive identity with a fresh key before network
+submission, signs the reviewed binding and acknowledged active Grant successors,
+then obtains the separate owner-recovery approval. The same state file resumes an
+ambiguous preparation or completion; after completion, use identity login with
+the updated vault. Cross-provider managed transfer is not implemented by these
+commands.
 
 ## Automation limits
 

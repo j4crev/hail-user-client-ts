@@ -100,6 +100,23 @@ export interface UserTransferCancellation {
   type: "hail.transfer-cancellation"; version: 1; did: string; nonce: string;
   grant_digest: Uint8Array; issued_at: number; expires_at: number;
 }
+export interface ManagedTransferGrant {
+  type:"hail.managed-transfer-grant";version:1;did:string;nonce:string;source_service_base:string;
+  destination_service_base:string;destination_domain:string;owner_recovery_key:string;source_identity_key:string;
+  issued_at:number;expires_at:number;
+}
+export interface ManagedTransferAddressSelection {
+  type:"hail.managed-transfer-address-selection";version:1;did:string;nonce:string;transfer_id:string;
+  grant_digest:Uint8Array;offer_digest:Uint8Array;address:string;selection_nonce:string;issued_at:number;expires_at:number;
+}
+export interface ManagedTransferApproval {
+  type:"hail.managed-transfer-approval";version:1;did:string;nonce:string;transfer_id:string;
+  source_service_base:string;destination_service_base:string;destination_address:string;owner_recovery_key:string;
+  source_identity_key:string;destination_rotation_key:string;destination_identity_key:string;destination_messaging_key:string;
+  grant_digest:Uint8Array;offer_digest:Uint8Array;selection_digest:Uint8Array;snapshot_version:4;
+  snapshot_digest:Uint8Array;history_checkpoint_digest:Uint8Array;source_generation:number;
+  previous_operation_cid:string;operation_cid:string;issued_at:number;expires_at:number;
+}
 export interface UserTransferRecoveryApproval {
   type:"hailp.transfer-abandon"|"hailp.transfer-resume";version:1;did:string;transfer_id:string;
   source_service_base:string;destination_service_base:string;source_generation:number;snapshot_digest:Uint8Array;
@@ -107,13 +124,13 @@ export interface UserTransferRecoveryApproval {
   protective_operation_cid?:string;invalidation_digest?:Uint8Array;
 }
 export interface ManagedCustodyTransitionPreparation {
-  transitionId:string;accountId:string;did:string;direction:"owner-to-managed";
+  transitionId:string;accountId:string;did:string;direction:"owner-to-managed"|"managed-to-owner";
   ownerRecoveryKey:string;oldIdentityKey:string;newIdentityKey:string;
   providerServiceBase:string;unsignedOperation:UnsignedOperation;previousOperationCid:string;
   historyCheckpointDigest:Uint8Array;bindingDigest:Uint8Array;generationFrom:number;generationTo:number;expiresAt:string;
 }
 export interface ManagedCustodyTransitionApproval {
-  type:"hailp.custody-transition";version:1;transition_id:string;did:string;direction:"owner-to-managed";
+  type:"hailp.custody-transition";version:1;transition_id:string;did:string;direction:"owner-to-managed"|"managed-to-owner";
   provider_service_base:string;owner_recovery_key:string;old_identity_key:string;new_identity_key:string;
   previous_operation_cid:string;operation_cid:string;history_checkpoint_sha256:Uint8Array;binding_sha256:Uint8Array;
   generation_from:number;generation_to:number;nonce:string;issued_at:number;expires_at:number;
@@ -252,6 +269,25 @@ export async function unlockUserVault(vault: UserVaultFile, recoverySecret: Uint
   } finally { rotationBytes.fill(0); }
 }
 
+export async function replaceUserIdentity(vault: UserVaultFile, recoverySecret: Uint8Array): Promise<UnlockedUserVault> {
+  validateVault(vault);
+  if (!vault.did) throw new Error("Custody transition requires a bound user vault");
+  const key = await cipher(recoverySecret);
+  const rotationBytes = await unseal(key, vault.recovery, "user-recovery");
+  const generated = (await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])) as CryptoKeyPair;
+  const privateBytes = new Uint8Array(await crypto.subtle.exportKey("pkcs8", generated.privateKey));
+  try {
+    const recovery = await P256Keypair.import(bytes(rotationBytes));
+    if (recovery.did() !== vault.recovery.publicDidKey) throw new Error("Vault public keys do not match private keys");
+    const prefixed = new Uint8Array(34);prefixed.set([0xed,0x01]);
+    prefixed.set(new Uint8Array(await crypto.subtle.exportKey("raw",generated.publicKey)),2);
+    const publicDidKey=`did:key:${base58btc.encode(prefixed)}`;
+    if(publicDidKey===vault.identity.publicDidKey)throw new Error("Fresh owner identity generation failed");
+    const next:UserVaultFile={...vault,identity:await seal(key,"hail-identity",publicDidKey,privateBytes)};
+    return new UnlockedUserVault(next,recovery,generated.privateKey);
+  } finally {rotationBytes.fill(0);privateBytes.fill(0);}
+}
+
 export class UnlockedUserVault {
   constructor(readonly vault: UserVaultFile, private readonly recovery: P256Keypair,
     private readonly identity: CryptoKey) {}
@@ -272,6 +308,33 @@ export class UnlockedUserVault {
     input.set(tag);input.set(payloadBytes,tag.length);return {payloadBytes,signature:await this.recovery.sign(input)};
   }
 
+  async signManagedTransferOwnerIntent(value:ManagedTransferGrant|ManagedTransferAddressSelection|ManagedTransferApproval) {
+    if(!this.vault.did||value.did!==this.vault.did||value.version!==1||
+      !["hail.managed-transfer-grant","hail.managed-transfer-address-selection","hail.managed-transfer-approval"].includes(value.type)||
+      !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(value.nonce)||
+      !Number.isSafeInteger(value.issued_at)||!Number.isSafeInteger(value.expires_at)||value.expires_at<=value.issued_at||
+      value.expires_at-value.issued_at>3600)throw new Error("Managed transfer intent must name this DID and one short-lived approval");
+    if(value.type==="hail.managed-transfer-grant") {
+      if(value.owner_recovery_key!==this.vault.recovery.publicDidKey||value.source_service_base===value.destination_service_base||
+        value.destination_service_base!==`https://${value.destination_domain}/hail`||value.source_identity_key===value.owner_recovery_key)
+        throw new Error("Managed transfer grant must bind this owner and one destination");
+    } else if(value.grant_digest.length!==32||value.offer_digest.length!==32||
+      !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(value.transfer_id)) {
+      throw new Error("Managed transfer intent must bind the exact grant and Offer");
+    } else if(value.type==="hail.managed-transfer-approval") {
+      const keys=[value.owner_recovery_key,value.source_identity_key,value.destination_rotation_key,
+        value.destination_identity_key,value.destination_messaging_key];
+      if(value.owner_recovery_key!==this.vault.recovery.publicDidKey||new Set(keys).size!==keys.length||
+        value.selection_digest.length!==32||value.snapshot_version!==4||value.snapshot_digest.length!==32||
+        value.history_checkpoint_digest.length!==32||!Number.isSafeInteger(value.source_generation)||value.source_generation<1||
+        !value.previous_operation_cid||!value.operation_cid||value.previous_operation_cid===value.operation_cid)
+        throw new Error("Managed transfer approval must bind the exact v4 cutover and current owner");
+    }
+    const payloadBytes=encodeDeterministic(value as unknown as HailValue),tag=new TextEncoder().encode(`${value.type}.v1\0`);
+    const input=new Uint8Array(tag.length+payloadBytes.length);input.set(tag);input.set(payloadBytes,tag.length);
+    return {payloadBytes,signature:await this.recovery.sign(input)};
+  }
+
   async signPlcOperation(unsigned: UnsignedOperation): Promise<{ operation: Operation;
     dagCbor: Uint8Array; cid: string; did: string }> {
     if (unsigned.rotationKeys[0] !== this.vault.recovery.publicDidKey ||
@@ -289,8 +352,9 @@ export class UnlockedUserVault {
 
   async signManagedCustodyTransition(prepared:ManagedCustodyTransitionPreparation) {
     const now=Math.floor(Date.now()/1000),expiry=Math.floor(new Date(prepared.expiresAt).getTime()/1000);
-    if(!this.vault.did||prepared.did!==this.vault.did||prepared.direction!=="owner-to-managed"||
-      prepared.ownerRecoveryKey!==this.vault.recovery.publicDidKey||prepared.oldIdentityKey!==this.vault.identity.publicDidKey||
+    if(!this.vault.did||prepared.did!==this.vault.did||!["owner-to-managed","managed-to-owner"].includes(prepared.direction)||
+      prepared.ownerRecoveryKey!==this.vault.recovery.publicDidKey||
+      (prepared.direction==="owner-to-managed"?prepared.oldIdentityKey!==this.vault.identity.publicDidKey:prepared.newIdentityKey!==this.vault.identity.publicDidKey)||
       prepared.unsignedOperation.prev!==prepared.previousOperationCid||prepared.unsignedOperation.rotationKeys[0]!==this.vault.recovery.publicDidKey||
       prepared.unsignedOperation.verificationMethods["hail-identity"]!==prepared.newIdentityKey||prepared.newIdentityKey===prepared.oldIdentityKey||
       prepared.historyCheckpointDigest.length!==32||prepared.bindingDigest.length!==32||
@@ -301,7 +365,7 @@ export class UnlockedUserVault {
     if(new Uint8Array(dagCbor.encode(operation)).length>7500)throw new Error("PLC operation exceeds the directory limit");
     const operationCid=(await cidForCbor(operation)).toString();
     const approval:ManagedCustodyTransitionApproval={type:"hailp.custody-transition",version:1,
-      transition_id:prepared.transitionId,did:prepared.did,direction:"owner-to-managed",provider_service_base:prepared.providerServiceBase,
+      transition_id:prepared.transitionId,did:prepared.did,direction:prepared.direction,provider_service_base:prepared.providerServiceBase,
       owner_recovery_key:prepared.ownerRecoveryKey,old_identity_key:prepared.oldIdentityKey,new_identity_key:prepared.newIdentityKey,
       previous_operation_cid:prepared.previousOperationCid,operation_cid:operationCid,
       history_checkpoint_sha256:Uint8Array.from(prepared.historyCheckpointDigest),binding_sha256:Uint8Array.from(prepared.bindingDigest),
