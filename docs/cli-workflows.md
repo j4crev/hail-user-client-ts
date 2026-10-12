@@ -285,6 +285,36 @@ Returning to a former provider uses the same five steps with a fresh transfer
 state and username. It is a new forward transfer, not reopening old provider
 state or credentials.
 
+## Change owner-controlled custody to managed
+
+This same-provider transition is available only when the provider enables
+`PUBLIC_CUSTODY_TRANSITIONS=true` with strict-public authority. It keeps the DID, address, owner
+recovery key, provider messaging/rotation keys, and signed history, but replaces
+the current identity key with a fresh provider-held key.
+
+Use a credential with `account:write`, the bound owner vault, and a new private
+state path:
+
+```bash
+hailp account custody managed \
+  --vault /secure/account/vault.json \
+  --state /secure/account/custody-transition.json
+```
+
+The CLI reviews and owner-signs the exact full PLC update plus a separate
+transition approval. It saves both before submission. Active authoritative
+Grants must have acknowledged current publications; the provider creates exact
+successors under the fresh identity and leaves terminal Grants unchanged.
+
+Completion revokes every old provider credential. If the response is lost,
+use owner-recovery login to create a fresh `account:write` credential, select it,
+and repeat the same command with the same state path. `--vault` is optional on
+that retry because the retained signed artifacts are reused. Do not delete the
+state file until the command reports `custodyProfile: "managed"`.
+
+Managed → owner-controlled custody and cross-provider managed transfer are not
+implemented by this command.
+
 ## Automation limits
 
 - Results are one JSON object on stdout; errors/prompts are on stderr.

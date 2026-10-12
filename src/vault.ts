@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { cidForCbor } from "@atproto/common";
 import { P256Keypair, parseDidKey, P256_JWT_ALG, SECP256K1_JWT_ALG } from "@atproto/crypto";
 import { assureValidSig, def, didForCreateOp, signOperation, type Operation, type UnsignedOperation } from "@did-plc/lib";
@@ -105,6 +105,18 @@ export interface UserTransferRecoveryApproval {
   source_service_base:string;destination_service_base:string;source_generation:number;snapshot_digest:Uint8Array;
   cutover_operation_cid:string;user_recovery_key:string;nonce:string;issued_at:number;expires_at:number;
   protective_operation_cid?:string;invalidation_digest?:Uint8Array;
+}
+export interface ManagedCustodyTransitionPreparation {
+  transitionId:string;accountId:string;did:string;direction:"owner-to-managed";
+  ownerRecoveryKey:string;oldIdentityKey:string;newIdentityKey:string;
+  providerServiceBase:string;unsignedOperation:UnsignedOperation;previousOperationCid:string;
+  historyCheckpointDigest:Uint8Array;bindingDigest:Uint8Array;generationFrom:number;generationTo:number;expiresAt:string;
+}
+export interface ManagedCustodyTransitionApproval {
+  type:"hailp.custody-transition";version:1;transition_id:string;did:string;direction:"owner-to-managed";
+  provider_service_base:string;owner_recovery_key:string;old_identity_key:string;new_identity_key:string;
+  previous_operation_cid:string;operation_cid:string;history_checkpoint_sha256:Uint8Array;binding_sha256:Uint8Array;
+  generation_from:number;generation_to:number;nonce:string;issued_at:number;expires_at:number;
 }
 
 function bytes(value: Uint8Array): Uint8Array<ArrayBuffer> { return Uint8Array.from(value); }
@@ -273,6 +285,31 @@ export class UnlockedUserVault {
     const dagCborBytes = new Uint8Array(dagCbor.encode(operation));
     if (dagCborBytes.length > 7500) throw new Error("PLC operation exceeds the directory limit");
     return { operation, dagCbor: dagCborBytes, cid: (await cidForCbor(operation)).toString(), did };
+  }
+
+  async signManagedCustodyTransition(prepared:ManagedCustodyTransitionPreparation) {
+    const now=Math.floor(Date.now()/1000),expiry=Math.floor(new Date(prepared.expiresAt).getTime()/1000);
+    if(!this.vault.did||prepared.did!==this.vault.did||prepared.direction!=="owner-to-managed"||
+      prepared.ownerRecoveryKey!==this.vault.recovery.publicDidKey||prepared.oldIdentityKey!==this.vault.identity.publicDidKey||
+      prepared.unsignedOperation.prev!==prepared.previousOperationCid||prepared.unsignedOperation.rotationKeys[0]!==this.vault.recovery.publicDidKey||
+      prepared.unsignedOperation.verificationMethods["hail-identity"]!==prepared.newIdentityKey||prepared.newIdentityKey===prepared.oldIdentityKey||
+      prepared.historyCheckpointDigest.length!==32||prepared.bindingDigest.length!==32||
+      prepared.generationTo!==prepared.generationFrom+1||!Number.isSafeInteger(expiry)||expiry<=now)
+      throw new Error("Managed custody preparation does not match this bound owner vault");
+    const operation=await signOperation(def.unsignedOperation.parse(prepared.unsignedOperation),this.recovery);
+    const operationBytes=new TextEncoder().encode(JSON.stringify(operation));
+    if(new Uint8Array(dagCbor.encode(operation)).length>7500)throw new Error("PLC operation exceeds the directory limit");
+    const operationCid=(await cidForCbor(operation)).toString();
+    const approval:ManagedCustodyTransitionApproval={type:"hailp.custody-transition",version:1,
+      transition_id:prepared.transitionId,did:prepared.did,direction:"owner-to-managed",provider_service_base:prepared.providerServiceBase,
+      owner_recovery_key:prepared.ownerRecoveryKey,old_identity_key:prepared.oldIdentityKey,new_identity_key:prepared.newIdentityKey,
+      previous_operation_cid:prepared.previousOperationCid,operation_cid:operationCid,
+      history_checkpoint_sha256:Uint8Array.from(prepared.historyCheckpointDigest),binding_sha256:Uint8Array.from(prepared.bindingDigest),
+      generation_from:prepared.generationFrom,generation_to:prepared.generationTo,nonce:randomUUID(),issued_at:now,
+      expires_at:Math.min(now+3600,expiry)};
+    const approvalBytes=encodeDeterministic(approval as unknown as HailValue),tag=new TextEncoder().encode("hailp.custody-transition.v1\0");
+    const input=new Uint8Array(tag.length+approvalBytes.length);input.set(tag);input.set(approvalBytes,tag.length);
+    return {operation,operationBytes,operationCid,approval,approvalBytes,approvalSignature:await this.recovery.sign(input)};
   }
 
   async signManagedGenesis(unsigned: UnsignedOperation) {

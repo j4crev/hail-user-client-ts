@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { P256Keypair } from "@atproto/crypto";
+import { P256Keypair, verifySignature } from "@atproto/crypto";
 import { assureValidSig, validateOperationLog } from "@did-plc/lib";
-import { createWebCryptoVerifier, verifySignedPayload, type HailAddressBinding, type HailGrant } from "@hailproto/codec";
+import { createWebCryptoVerifier, decodeDeterministic, verifySignedPayload, type HailAddressBinding, type HailGrant } from "@hailproto/codec";
 import { base58btc } from "multiformats/bases/base58";
 import { describe, expect, it } from "vitest";
 import { createUserVault, unlockUserVault, type UserMigrationConsent, type UserTransferGrant,
@@ -110,6 +110,23 @@ describe("user-owned portable vault", () => {
     expect((await verifyHandshake(await client.signTransferCancellation(cancellation),
       "hail.transfer-cancellation", generated.vault.identity.publicDidKey)).nonce)
       .toBe(transfer.nonce);
+    const managedIdentity=await edDidKey(),transitionId=randomUUID(),history=randomBytes(32),bindingDigest=randomBytes(32);
+    const transitionPreparation={transitionId,accountId:randomUUID(),did:genesis.did,
+      direction:"owner-to-managed",ownerRecoveryKey:generated.vault.recovery.publicDidKey,
+      oldIdentityKey:generated.vault.identity.publicDidKey,newIdentityKey:managedIdentity,
+      providerServiceBase:"https://provider.example.com/hail",previousOperationCid:genesis.cid,
+      unsignedOperation:{type:"plc_operation",prev:genesis.cid,rotationKeys:genesis.operation.rotationKeys,
+        verificationMethods:{...genesis.operation.verificationMethods,"hail-identity":managedIdentity},
+        alsoKnownAs:genesis.operation.alsoKnownAs,services:genesis.operation.services},historyCheckpointDigest:history,
+      bindingDigest,generationFrom:1,generationTo:2,expiresAt:new Date((now+1800)*1000).toISOString()} as const;
+    const transition=await client.signManagedCustodyTransition(transitionPreparation);
+    expect(transition.operation.verificationMethods["hail-identity"]).toBe(managedIdentity);
+    expect((await assureValidSig([generated.vault.recovery.publicDidKey],transition.operation))).toBe(generated.vault.recovery.publicDidKey);
+    const tag=new TextEncoder().encode("hailp.custody-transition.v1\0"),proof=new Uint8Array(tag.length+transition.approvalBytes.length);
+    proof.set(tag);proof.set(transition.approvalBytes,tag.length);
+    expect(await verifySignature(generated.vault.recovery.publicDidKey,proof,transition.approvalSignature,{jwtAlg:"ES256"})).toBe(true);
+    expect((decodeDeterministic(transition.approvalBytes) as {operation_cid:string}).operation_cid).toBe(transition.operationCid);
+    await expect(client.signManagedCustodyTransition({...transitionPreparation,newIdentityKey:generated.vault.identity.publicDidKey})).rejects.toThrow();
     generated.recoverySecret.fill(0);
   });
 });

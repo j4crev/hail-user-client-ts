@@ -120,7 +120,7 @@ export class AccountApiClient {
       ![null, "fenced", "exported", "retired"].includes(result.migrationState as null | string) ||
       !["owner-controlled", "managed", "custodial-poc", "unknown"].includes(result.custodyProfile as string) ||
       !publicKey(result.identityPublicKey) || !publicKey(result.ownerRecoveryPublicKey) ||
-      ![null, "independent", "poc-local"].includes(result.monitorVerificationMode as null | string) ||
+      ![null, "independent", "poc-local", "strict-public-v1"].includes(result.monitorVerificationMode as null | string) ||
        !Array.isArray(result.scopes) || !result.scopes.every(scope => ACCOUNT_API_SCOPES.includes(scope))) {
       throw new ClientError("RESPONSE_ERROR", "Provider account does not match the credential or API contract");
     }

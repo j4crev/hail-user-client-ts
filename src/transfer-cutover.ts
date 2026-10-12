@@ -41,13 +41,15 @@ export async function verifySignature(kind: string, payload: Uint8Array,
 
 export async function verifyTransferSnapshot(snapshot:Record<string,unknown>) {
   if(!snapshot||typeof snapshot!=="object"||Array.isArray(snapshot)||Object.keys(snapshot).sort().join(",")!=="digest,manifest,signature,sourceMessagingPublicKey,type,version"||
-    snapshot.type!=="hail.portable-migration-transfer"||snapshot.version!==2||typeof snapshot.manifest!=="string"||typeof snapshot.digest!=="string"||
+    snapshot.type!=="hail.portable-migration-transfer"||![2,3].includes(snapshot.version as number)||typeof snapshot.manifest!=="string"||typeof snapshot.digest!=="string"||
     typeof snapshot.signature!=="string"||typeof snapshot.sourceMessagingPublicKey!=="string")throw new Error("Source did not supply a signed portable snapshot");
   const manifestBytes=decodeBase64Url(snapshot.manifest),digest=new Uint8Array(createHash("sha256").update(manifestBytes).digest());
   if(manifestBytes.length>67108864||decodeBase64Url(snapshot.digest).length!==32||decodeBase64Url(snapshot.signature).length!==64||
     !Buffer.from(digest).equals(Buffer.from(decodeBase64Url(snapshot.digest))))throw new Error("Source snapshot digest mismatch or size limit exceeded");
-  await verifySignature("hail-migration-snapshot-v2",digest,decodeBase64Url(snapshot.signature),snapshot.sourceMessagingPublicKey);
-  return {manifest:data(manifestBytes),digest};
+  const manifest=data(manifestBytes);
+  if(manifest.version!==snapshot.version)throw new Error("Snapshot container and manifest versions differ");
+  await verifySignature(`hail-migration-snapshot-v${snapshot.version}`,digest,decodeBase64Url(snapshot.signature),snapshot.sourceMessagingPublicKey);
+  return {manifest,digest};
 }
 
 export async function signPrivatePocCutover(vaultPath:string,snapshotPath:string,offerRow:Record<string,unknown>,receiptRow:Record<string,unknown>,

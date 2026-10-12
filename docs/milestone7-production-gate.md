@@ -259,6 +259,34 @@ write recovery, stale-monitor rollback, immutable evidence, guarded rollback and
 activation retry. Readers, PLC and monitor are fixtures: no public registry write,
 independent deployment, real alert delivery or external supervision was performed.
 
+## Same-provider custody-transition slice (migration 45)
+
+Migration **45** implements the first positive MC-11 direction:
+owner-controlled → managed at the current provider. Preparation durably retains
+a fresh encrypted provider identity, the complete expected PLC state, a fresh
+managed Address Binding, serving generations, and an exact digest over retained
+Grant history plus proposed successors. Every active authoritative predecessor
+must already be acknowledged; terminal lineages are preserved without a new
+revision.
+
+The owner separately signs the exact full-state PLC operation and a
+domain-separated approval binding the direction, provider, old/new keys,
+predecessor CID, history checkpoint, binding, and generation change. Ambiguous
+PLC submission observes or resubmits only that operation. One account-locked
+transaction archives portable custody evidence, installs the matching managed
+key/evidence and binding, appends Grant successors, revokes credentials, drains
+worker leases, and advances the serving generation. Database guards prevent
+mixed active custody and fence ordinary writes while preparation is open.
+
+`hailp account custody managed` retains the operation and approval before
+submission. After a lost completion response, the owner can obtain a fresh
+owner-recovery credential and replay that state without re-signing. Focused
+PostgreSQL proof covers lost-response recovery, changed operation/approval
+refusal, exact completion replay, preserved signed predecessor bytes, unchanged
+terminal Grants, single active custody, credential/lease invalidation, generation
+advance, and guarded rollback. It uses local PLC/read fixtures and does not prove
+public infrastructure, reverse custody, or managed provider migration.
+
 ## Remaining gates and next implementation order
 
 | Gate | Current evidence | Needed before enabling |
@@ -267,12 +295,29 @@ independent deployment, real alert delivery or external supervision was performe
 | Shared PLC authority policy | Opt-in strict fresh routine resolver, immutable cutover/read bundles and envelope/Grant/binding/profile/status action bindings locally implemented | Review current/recovery-window policy and preserve authority history across transfer/restoration |
 | Independent monitor/bootstrap | Reviewed checkpoint, contiguous catch-up, fresh transfer v2 and onboarding-genesis attestations locally tested; same-VPS deployment remains non-independent | Independently administered hosts/readers, external health supervision and real alert/outage/recovery proof |
 | Public onboarding | Opt-in owner/monitor API/CLI ceremony, exact write/readback and immutable activation evidence locally tested | Real public write, non-disposable owner backup/monitor deployment, abuse controls and cross-host operational proof |
-| Historical reconciliation / managed transitions | Original signed history retained; new signer epochs held | Verified acknowledged/unacknowledged predecessors, nullified-branch classification, fresh intended-party keys and positive managed move/custody proofs |
+| Historical reconciliation / managed transitions | Owner-controlled → managed same-provider path proves acknowledged predecessors, fresh identity, preserved terminal/history bytes and atomic generation/custody cutover | Reverse custody, unacknowledged/nullified-branch reconciliation and managed provider moves |
 | Cross-host operation/restoration/load | Local/private continuity and migration proofs | Independently operated infrastructure, calibrated limits and latest accepted-state/ownership restoration under failures |
 
-The next coherent slice is history transport/restoration and managed-transition
-reconciliation, while deployment work must exercise this onboarding ceremony against
-real independently operated readers/monitor and public PLC. Local implementation does
-not settle pre-migration historical authority or prove operational independence.
+The first history-transport slice now versions new portable snapshots as v3 and
+carries account-scoped envelope, Grant and signing authority links with exactly
+their referenced immutable PLC resolution bundles. The source rejects missing,
+dangling, cross-account, wrong-subject, digest-mismatched or representation-mismatched
+history before signing; the destination applies the same closed-domain validation.
+Retained v2 snapshots and their original signature domain remain readable for exact
+retries, but cannot be presented as new history-preservation evidence. Destination
+retention keeps transported history source-attributed inside the exact signed
+manifest rather than refreshing it into current action authority.
+
+Focused local proof passes provider/client typechecks, both non-database suites,
+the 16-case fenced-transfer PostgreSQL integration with envelope/Grant/signing
+history and tamper refusal, and the two-race private forward/return/recovery
+integration through the real CLI. These use disposable local databases and do not
+prove independent cross-host restoration.
+
+The next coherent implementation slice is the reverse managed → owner-controlled
+transition, while deployment work must exercise onboarding and v3 history
+restoration against real independently operated readers/monitor and public PLC.
+Local implementation does not settle pre-migration historical authority,
+nullified-branch reconciliation or operational independence.
 Production infrastructure still needs explicit independent hosts/operators, durable
 owner recovery material, alert supervision and calibrated abuse limits.

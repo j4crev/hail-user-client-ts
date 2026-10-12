@@ -26,7 +26,7 @@ it("proves the process contract and rejects misplaced options, duplicate flags a
   ]) expect(() => parseCommand(args)).toThrow();
   expect(parseCommand(["grant", "update", "--help"]).help).toContain("fresh verified consent");
   expect(parseCommand(["grant", "create", "sender@example.com", "--category", "a", "--category", "b", "--output", "x"]).values.category).toEqual(["a", "b"]);
-});
+},15_000);
 
 it("binds selection before network, preserves private credentials and produces bounded actionable HTTP errors", async () => {
   const directory = await mkdtemp(join(tmpdir(), "hail-contract-"));

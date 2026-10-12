@@ -31,6 +31,12 @@ protocol boundary.
   cutover signing, completion, and forward return to a former provider.
 - Managed-profile and strict-public onboarding/authority conformance slices
   verified locally through provider migration 44.
+- Versioned transfer snapshots carry source-attributed strict-public authority
+  history; retained v2 snapshots remain compatible for exact retries.
+- Same-provider owner-controlled → managed custody rotates to a fresh
+  provider-held identity with owner-signed PLC/transition approval, acknowledged
+  Grant successors, exact retry state, one atomic custody/generation cutover,
+  and terminal old credentials/leases.
 
 The private-PLC deployments and local proof environment do not establish public
 production readiness or independent monitoring.
@@ -42,8 +48,8 @@ production readiness or independent monitoring.
    identity and recovery material.
 3. Operate monitor/read paths independently from providers and test bootstrap,
    disagreement, gaps, alerts, and recovery inside the PLC recovery window.
-4. Complete managed migration and custody-transition workflows while preserving
-   historical evidence and rollback safety.
+4. Complete the reverse managed → owner-controlled transition and managed
+   provider migration while preserving transported history and rollback safety.
 5. Prove cross-host restoration, historical signed-object audits, and load
    limits on independently operated infrastructure.
 6. Integrate device-keystore or hardware protection and verify cross-platform

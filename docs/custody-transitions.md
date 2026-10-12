@@ -1,9 +1,10 @@
 # Custody changes, managed migration and return transfers
 
-Status: milestone-5 reference implementation design. Execution is not enabled.
-This document specifies the intended local lifecycle and its implementation
-gates; it does not amend Hail federation formats or settle production historical
-PLC authority. The [protocol custody direction](https://github.com/j4crev/hailproto/blob/main/docs/production-portable-custody.md#managed-profiles-and-people-or-agents),
+Status: milestone-7 reference design. The strict-public, same-provider
+owner-controlled → managed slice is implemented; reverse and cross-provider
+managed transitions remain disabled. This document specifies the local lifecycle
+and its implementation gates; it does not amend Hail federation formats or settle
+production historical PLC authority. The [protocol custody direction](https://github.com/j4crev/hailproto/blob/main/docs/production-portable-custody.md#managed-profiles-and-people-or-agents),
 [DID profile](https://github.com/j4crev/hailproto/blob/main/spec/did-profile.md#provider-migration)
 and [historical-key decision](grant-key-reconciliation.md) remain the baseline.
 
@@ -161,9 +162,13 @@ existing delivery deadline rules after continuation.
 
 ## Historical identity and binding gate
 
-Identity-changing paths remain disabled until the milestone-4 historical-key
-decision has an implementation and proof. Even the acknowledged path is not
-currently executed by Grant service/repository code.
+The implemented owner-controlled → managed path accepts only active authoritative
+Grant lineages whose current publication is acknowledged. It precomputes a
+higher revision with unchanged authorization/consent and the exact predecessor,
+then installs those successors in the custody transaction. Terminal lineages are
+left unchanged. Unacknowledged and conflicting predecessors still block. Reverse
+and cross-provider identity-changing paths remain disabled until their equivalent
+historical-key proof exists.
 
 - Retain each original COSE representation/digest, exact signer public key,
   validated PLC operation/audit evidence, trusted observations/checkpoints,
