@@ -277,7 +277,7 @@ blockers before enabling managed migration against the public PLC.
 - [x] Freeze and review the enabled managed-custody/read-evidence profile, complete
   all applicable conformance cases against private fixtures, and version every
   retained production record.
-- [ ] Implement a separate, disabled-by-default public managed-transfer runtime
+- [x] Implement a separate, disabled-by-default public managed-transfer runtime
   using the strict public resolver and cutover evidence. Keep the private gate
   incompatible with `https://plc.directory` and test the public path through
   injected fixtures without weakening that guard.
@@ -311,6 +311,24 @@ managed/onboarding/transition writers to retain the managed profile, and version
 public onboarding, resolution and cutover evidence independently from custody,
 registry and activation modes. Legacy exact private-POC snapshot retries remain
 readable but cannot be promoted to strict-public evidence.
+
+The second item completed October 13, 2026, in private/injected fixtures only.
+`PUBLIC_MANAGED_TRANSFER` is off by default and requires production strict public
+authority, two reviewed readers, both provider operator declarations and a pinned
+independent monitor. It rejects private-POC gates. The public runtime uses full
+public cutover evidence and seals its selection atomically with activation; the
+private runtime and registry guards remain separate and unchanged.
+
+For public transfers, first run `hailp account managed-transfer complete --state
+<state> --snapshot <snapshot>` to stage/submit the exact operation. An
+`awaiting-monitor` response does not activate or retire either provider. Obtain a
+fresh reviewed v2 monitor report for that operation, then retry with
+`--monitor-attestation <private-json-file>` (`{payload, signature}`, canonical
+base64url bytes). Only the monitor report may be refreshed; snapshot, approval
+and PLC operation stay exact. Private transfers reject this option. Fixture tests
+exercise both profiles through `A → B → A` and fail closed on missing/invalid/
+stale/gapped/wrong-bootstrap reports, reader outages/disagreement and profile
+mismatch. No public PLC request or deployment change accompanies this gate.
 
 #### Final evidence that requires the public environment
 

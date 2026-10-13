@@ -35,7 +35,7 @@ const commands = [
   ["account managed-transfer select", "", "username vault state", "", true, "Owner-select and reserve the destination address; this can fence the source."],
   ["account managed-transfer export", "", "state output", "", true, "Export and retain the exact signed managed snapshot after fencing."],
   ["account managed-transfer sign-cutover", "", "vault state snapshot operation approval", "", false, "Owner-sign the exact managed PLC cutover and snapshot approval offline."],
-  ["account managed-transfer complete", "", "state snapshot", "", false, "Stage, cut over, activate and retire using only retained exact artifacts."],
+  ["account managed-transfer complete", "", "state snapshot", "monitor-attestation", false, "Stage, cut over, activate and retire; public mode requires independent monitor evidence."],
   ["account custody managed", "", "state", "vault", true, "Rotate owner-controlled identity into same-provider managed custody; retain state for exact retries."],
   ["account custody owner-controlled", "", "vault state backup-verified", "", true, "Rotate managed identity into fresh client-held custody; verify backup and retain exact retry state."],
   ["vault create", "", "vault recovery-file", "", false, "Create two private files: encrypted vault and separate encryption secret."],

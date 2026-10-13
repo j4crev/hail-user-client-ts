@@ -68,7 +68,7 @@ try {
       if(argument==="sign-cutover") {
         printResult(await signManagedTransferCutover(values.vault!,values.state!,values.snapshot!,values.operation!,values.approval!));
       } else if(argument==="complete") {
-        printResult(await completeManagedTransfer(values.state!,values.snapshot!));
+        printResult(await completeManagedTransfer(values.state!,values.snapshot!,fetch,values["monitor-attestation"]));
       } else {
       const credential=values.credentials ?? Bun.env.HAILP_CREDENTIAL_FILE;
       if(!credential)throw new Error("Set --credentials or HAILP_CREDENTIAL_FILE");

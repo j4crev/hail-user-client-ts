@@ -12,7 +12,7 @@ import {completeManagedTransfer,exportManagedTransferSnapshot,managedTransferOff
   selectManagedTransferAddress,signManagedTransferCutover} from "../src/managed-account-transfer.js";
 import {createUserVault} from "../src/vault.js";
 
-it("orchestrates exact-retry managed owner authorization through destination reservation",async()=>{
+it.each(["poc-local","strict-public-v1"])("orchestrates exact-retry managed owner authorization and completion (%s)",async profile=>{
   const generated=await createUserVault(),directory=await mkdtemp(join(tmpdir(),"hail-managed-transfer-"));
   const did=`did:plc:${"a".repeat(24)}`,vault={...generated.vault,did},vaultPath=join(directory,"vault.json"),statePath=join(directory,"state.json");
   await writeFile(vaultPath,JSON.stringify(vault),{mode:0o600});
@@ -80,7 +80,7 @@ it("orchestrates exact-retry managed owner authorization through destination res
       destinationRotationPublicKey:destinationRotation.did,destinationIdentityPublicKey:destinationIdentity.did,
       destinationMessagingPublicKey:destinationMessaging.did,sourceGeneration:1,historyCheckpointDigest:encodeBase64Url(new Uint8Array(32).fill(7)),
       tables:{managed_custody_evidence:[{owner_recovery_public_key:vault.recovery.publicDidKey,
-        provider_identity_public_key:sourceIdentity.did,verification_mode:"poc-local"}],
+        provider_identity_public_key:sourceIdentity.did,verification_mode:profile}],
         account_keys:[{role:"plc-rotation",public_key:sourceRotation.did()}],
         plc_operation_evidence:[{operation_cid:previousCid,expected_state:currentState}]}};
     const manifestBytes=new TextEncoder().encode(JSON.stringify(manifest)),snapshotDigest=hash(manifestBytes),
@@ -110,9 +110,22 @@ it("orchestrates exact-retry managed owner authorization through destination res
       if(retirementAttempts===1)throw new Error("lost retirement response");
       return new Response(null,{status:204});
     }) as typeof fetch;
-    await expect(completeManagedTransfer(statePath,snapshotPath,finishTransport)).rejects.toThrow("lost completion response");
-    await expect(completeManagedTransfer(statePath,snapshotPath,finishTransport)).rejects.toThrow("lost retirement response");
-    expect(await completeManagedTransfer(statePath,snapshotPath,finishTransport)).toMatchObject({generation:2,destinationActive:true,sourceRetired:true});
+    const monitorPath=join(directory,"monitor.json"),monitor={payload:encodeBase64Url(encodeDeterministic({type:"hail.plc-monitor-attestation",version:2})),
+      signature:encodeBase64Url(new Uint8Array(64))};
+    await writeFile(monitorPath,JSON.stringify(monitor),{mode:0o600});
+    if(profile==="strict-public-v1") {
+      const submissionTransport=(async(_url:string,_init:RequestInit)=>new Response(JSON.stringify({type:"hailp.managed-transfer-completion",version:1,did,
+        accountId:account.accountId,transferId:manifest.transferId,operationCid:cutover.operationCid,phase:"awaiting-monitor"}),
+        {headers:{"Content-Type":"application/hail-transfer+json"}})) as typeof fetch;
+      expect(await completeManagedTransfer(statePath,snapshotPath,submissionTransport)).toMatchObject({phase:"awaiting-monitor",pending:true,monitorRequired:true});
+      expect(JSON.parse(await readFile(statePath,"utf8")).retired).not.toBe(true);
+    } else await expect(completeManagedTransfer(statePath,snapshotPath,finishTransport,monitorPath)).rejects.toThrow(/Private/);
+    expect(completionBodies).toHaveLength(0);
+    const finish=()=>completeManagedTransfer(statePath,snapshotPath,finishTransport,profile==="strict-public-v1"?monitorPath:undefined);
+    await expect(finish()).rejects.toThrow("lost completion response");
+    await expect(finish()).rejects.toThrow("lost retirement response");
+    expect(await finish()).toMatchObject({generation:2,destinationActive:true,sourceRetired:true});
+    expect(JSON.parse(completionBodies[0]!).monitor).toEqual(profile==="strict-public-v1"?monitor:undefined);
     expect(new Set(completionBodies).size).toBe(1);expect(new Set(retirementBodies).size).toBe(1);
   } finally {generated.recoverySecret.fill(0);await rm(directory,{recursive:true,force:true});}
 });

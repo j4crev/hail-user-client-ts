@@ -349,7 +349,7 @@ async function post(origin:string,action:"managed-completions"|"managed-retireme
   return JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(bytes)) as Record<string,unknown>;
 }
 
-export async function completeManagedTransfer(path:string,snapshotPath:string,transport:typeof fetch=fetch) {
+export async function completeManagedTransfer(path:string,snapshotPath:string,transport:typeof fetch=fetch,monitorPath?:string) {
   const state=await load(path),cutover=state.cutover;
   if(!cutover||cutover.snapshotPath!==snapshotPath)throw new Error("Managed completion requires the retained signed cutover state");
   const {offer,reservation}=await retained(state),verified=await managedSnapshot(snapshotPath);snapshotMatches(state,verified.manifest,offer);
@@ -358,12 +358,18 @@ export async function completeManagedTransfer(path:string,snapshotPath:string,tr
     JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(operationBytes)));
   if((await cidForCbor(operation)).toString()!==cutover.operationCid)throw new Error("Managed cutover operation changed");
   const approval=wire(JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(await privateFile(cutover.approvalPath,16_384))));
+  const publicProfile=verified.manifest.tables?.managed_custody_evidence?.[0]?.verification_mode==="strict-public-v1";
+  if(!publicProfile&&monitorPath)throw new Error("Private managed completion cannot accept public monitor evidence");
+  const monitor=monitorPath?wire(JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(await privateFile(monitorPath,16_384)))):undefined;
   const result=await post(state.destination,"managed-completions",{snapshot:verified.snapshot,approval,
-    operation:encodeBase64Url(operationBytes)},transport);
+    operation:encodeBase64Url(operationBytes),...(monitor?{monitor}:{})},transport);
   if(!result||result.type!=="hailp.managed-transfer-completion"||result.version!==1||result.did!==state.did||
     result.accountId!==state.accountId||result.transferId!==offer.transfer_id||result.operationCid!==cutover.operationCid||
-    result.phase!=="active"||result.generation!==verified.manifest.sourceGeneration+1)
+    !["active",...(publicProfile?["awaiting-monitor"]:[])].includes(result.phase as string))
     throw new Error("Destination did not confirm the exact managed transfer");
+  if(result.phase==="awaiting-monitor")return {did:state.did,transferId:offer.transfer_id,operationCid:cutover.operationCid,
+    phase:"awaiting-monitor",pending:true,monitorRequired:true,stateFile:path};
+  if(result.generation!==verified.manifest.sourceGeneration+1)throw new Error("Destination generation differs from retained artifacts");
   const receipt=wire(result.receipt),receiptBytes=decodeBase64Url(receipt.payload);
   await verifySignature("hail.portable-migration-activated.v1",receiptBytes,decodeBase64Url(receipt.signature),offer.destination_messaging_key);
   const activated=decodeDeterministic(receiptBytes) as Record<string,any>;
