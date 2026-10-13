@@ -59,8 +59,9 @@ production readiness or independent monitoring.
    identity and recovery material.
 3. Operate monitor/read paths independently from providers and test bootstrap,
    disagreement, gaps, alerts, and recovery inside the PLC recovery window.
-4. Complete managed provider migration while preserving transported history,
-   fresh destination keys and rollback safety.
+4. Operationalize the completed local managed-migration proof behind an explicit
+   private-PLC gate, finish export/sign/complete CLI commands, and pass the live
+   HTTPS checklist in [custody transitions](custody-transitions.md#managed-private-plc-operationalization-checklist).
 5. Prove cross-host restoration, historical signed-object audits, and load
    limits on independently operated infrastructure.
 6. Integrate device-keystore or hardware protection and verify cross-platform

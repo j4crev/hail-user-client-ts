@@ -1,19 +1,23 @@
 import {createHash,randomUUID} from "node:crypto";
 import {verifySignature as verifyDidSignature} from "@atproto/crypto";
+import {cidForCbor} from "@atproto/common";
+import {def} from "@did-plc/lib";
 import {decodeBase64Url,decodeDeterministic,encodeBase64Url,encodeDeterministic,type HailValue} from "@hailproto/codec";
 import type {AccountApiClient} from "./account-api.js";
 import {destinationOrigin} from "./account-transfer.js";
 import {writeState} from "./account-creation.js";
 import {readRecoverySecret} from "./cli/private-input.js";
-import {privateFile} from "./grant-revocation.js";
+import {privateFile,savePrivateBytes} from "./grant-revocation.js";
 import {verifySignature} from "./transfer-cutover.js";
-import {unlockUserVault,type ManagedTransferAddressSelection,type ManagedTransferGrant,type UserVaultFile} from "./vault.js";
+import {unlockUserVault,type ManagedTransferAddressSelection,type ManagedTransferApproval,type ManagedTransferGrant,type UserVaultFile} from "./vault.js";
 
 interface Wire {payload:string;signature:string}
 interface State {
   type:"hailp.managed-account-transfer";version:1;provider:string;accountId:string;did:string;
   ownerRecoveryKey:string;sourceIdentityKey:string;destination:string;
   grant?:Wire;acknowledgement?:Wire;offer?:Wire;selection?:Wire;reservation?:Wire;
+  cutover?:{snapshotDigest:string;snapshotPath:string;operationPath:string;approvalPath:string;operationCid:string};
+  activationReceipt?:Wire;retired?:boolean;
 }
 
 const sha=(bytes:Uint8Array)=>new Uint8Array(createHash("sha256").update(bytes).digest());
@@ -203,4 +207,173 @@ export async function selectManagedTransferAddress(client:AccountApiClient,usern
   if(state.reservation&&JSON.stringify(state.reservation)!==JSON.stringify(result.record))throw new Error("Destination managed reservation changed");
   state.reservation=result.record;await writeState(path,state);
   return {did:state.did,destination:state.destination,address,transferId:offer.transfer_id,requestAcknowledged:result.status===200,stateFile:path};
+}
+
+async function retained(state:State) {
+  const grant=await reviewGrant(state),offer=await reviewOffer(state,grant);
+  const selection=await ownerRecord(wire(state.selection),"hail.managed-transfer-address-selection",state.ownerRecoveryKey);
+  const reservation=await providerRecord(wire(state.reservation),"hail.managed-transfer-reservation",offer.destination_messaging_key);
+  if(selection.did!==state.did||selection.nonce!==grant.nonce||selection.transfer_id!==offer.transfer_id||
+    reservation.did!==state.did||reservation.nonce!==grant.nonce||reservation.transfer_id!==offer.transfer_id||reservation.address!==selection.address||
+    !equal(selection.grant_digest,sha(decodeBase64Url(state.grant!.payload)))||
+    !equal(selection.offer_digest,sha(decodeBase64Url(state.offer!.payload)))||
+    !equal(reservation.offer_digest,selection.offer_digest)||!equal(reservation.selection_digest,sha(decodeBase64Url(state.selection!.payload)))||
+    reservation.destination_rotation_key!==offer.destination_rotation_key||reservation.destination_identity_key!==offer.destination_identity_key||
+    reservation.destination_messaging_key!==offer.destination_messaging_key)
+    throw new Error("Retained managed selection/reservation differs from the exact approval");
+  return {grant,offer,selection,reservation};
+}
+
+async function parseManagedSnapshot(value:unknown,label:string) {
+  if(!value||typeof value!=="object"||Array.isArray(value))throw new Error(label);
+  const snapshot=value as Record<string,unknown>;
+  if(Object.keys(snapshot).sort().join(",")!=="digest,manifest,signature,sourceMessagingPublicKey,type,version"||
+    snapshot.type!=="hail.managed-migration-transfer"||snapshot.version!==4||typeof snapshot.manifest!=="string"||
+    typeof snapshot.digest!=="string"||typeof snapshot.signature!=="string"||typeof snapshot.sourceMessagingPublicKey!=="string")
+    throw new Error(label);
+  const bytes=decodeBase64Url(snapshot.manifest),hash=sha(bytes);
+  if(bytes.length>67_108_864||!equal(hash,decodeBase64Url(snapshot.digest))||decodeBase64Url(snapshot.signature).length!==64)
+    throw new Error("Managed snapshot digest, signature or size is invalid");
+  await verifySignature("hail-migration-snapshot-v4",hash,decodeBase64Url(snapshot.signature),snapshot.sourceMessagingPublicKey);
+  const manifest=JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(bytes)) as Record<string,any>;
+  if(manifest.version!==4||manifest.custodyProfile!=="managed")throw new Error("Managed snapshot manifest is invalid");
+  return {snapshot,manifest,hash};
+}
+
+async function managedSnapshot(path:string) {
+  return parseManagedSnapshot(JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(
+    await privateFile(path,100_000_000))),"Source did not supply a signed managed snapshot");
+}
+
+function snapshotMatches(state:State,manifest:Record<string,any>,offer:Record<string,any>) {
+  if(manifest.did!==state.did||manifest.accountId!==state.accountId||manifest.transferId!==offer.transfer_id||
+    manifest.sourceServiceBase!==`${state.provider}/hail`||manifest.destinationServiceBase!==`${state.destination}/hail`||
+    manifest.ownerRecoveryPublicKey!==state.ownerRecoveryKey||manifest.sourceIdentityPublicKey!==state.sourceIdentityKey||
+    manifest.destinationRotationPublicKey!==offer.destination_rotation_key||
+    manifest.destinationIdentityPublicKey!==offer.destination_identity_key||
+    manifest.destinationMessagingPublicKey!==offer.destination_messaging_key)
+    throw new Error("Managed snapshot differs from the retained account and Offer");
+}
+
+export async function exportManagedTransferSnapshot(client:AccountApiClient,path:string,output:string) {
+  const account=await client.account(),state=await load(path);
+  if(state.type!=="hailp.managed-account-transfer"||state.version!==1||state.provider!==account.provider||
+    state.accountId!==account.accountId||state.did!==account.did||account.custodyProfile!=="managed"||
+    !account.scopes.includes("account:write")||!["fenced","exported"].includes(account.migrationState as string))
+    throw new Error("Managed export requires the original fenced source account");
+  const {offer}=await retained(state),snapshot=await client.request("/transfers/managed/export",
+    {transferId:offer.transfer_id},"/api/v1/account",100_000_000);
+  const verified=await parseManagedSnapshot(snapshot,"Invalid managed snapshot response");snapshotMatches(state,verified.manifest,offer);
+  let prior:Uint8Array|null=null;try{prior=await privateFile(output,100_000_000);}catch(error){if(!(error instanceof Error&&"code" in error&&error.code==="ENOENT"))throw error;}
+  const encoded=new TextEncoder().encode(JSON.stringify(snapshot));
+  if(prior&&!equal(prior,encoded))throw new Error("Retained managed snapshot changed");
+  if(!prior)await savePrivateBytes(output,encoded);
+  return {did:state.did,transferId:offer.transfer_id,digest:snapshot.digest,state:"exported",snapshotFile:output};
+}
+
+export async function signManagedTransferCutover(vaultPath:string,path:string,snapshotPath:string,
+  operationPath:string,approvalPath:string,recoveryInput=readRecoverySecret) {
+  const state=await load(path),{offer,selection}=await retained(state),verified=await managedSnapshot(snapshotPath);
+  snapshotMatches(state,verified.manifest,offer);
+  if(state.cutover) {
+    if(state.cutover.snapshotPath!==snapshotPath||state.cutover.operationPath!==operationPath||state.cutover.approvalPath!==approvalPath||
+      state.cutover.snapshotDigest!==encodeBase64Url(verified.hash))throw new Error("Managed cutover paths or snapshot changed");
+    const [operationBytes,approvalBytes]=await Promise.all([privateFile(operationPath,16_000),privateFile(approvalPath,16_384)]),
+      operation=def.operation.parse(JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(operationBytes))),
+      approval=await ownerRecord(wire(JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(approvalBytes))),
+        "hail.managed-transfer-approval",state.ownerRecoveryKey);
+    if((await cidForCbor(operation)).toString()!==state.cutover.operationCid||approval.operation_cid!==state.cutover.operationCid||
+      !equal(approval.snapshot_digest,verified.hash))throw new Error("Retained managed cutover artifacts changed");
+    return {did:state.did,transferId:offer.transfer_id,operationCid:state.cutover.operationCid,
+      operationFile:operationPath,approvalFile:approvalPath,stateFile:path};
+  }
+  const manifest=verified.manifest,tables=manifest.tables as Record<string,Record<string,any>[]>,
+    custody=tables.managed_custody_evidence?.[0],rotation=tables.account_keys?.find(key=>key.role==="plc-rotation"),
+    evidence=tables.plc_operation_evidence?.at(-1);
+  if(custody?.owner_recovery_public_key!==state.ownerRecoveryKey||custody?.provider_identity_public_key!==state.sourceIdentityKey||
+    !["poc-local","strict-public-v1"].includes(custody?.verification_mode)||!rotation||!evidence||
+    typeof evidence.operation_cid!=="string"||typeof manifest.historyCheckpointDigest!=="string"||
+    !Number.isSafeInteger(manifest.sourceGeneration)||manifest.sourceGeneration<1)
+    throw new Error("Managed snapshot lacks current owner/custody authority");
+  const current=def.documentData.parse(typeof evidence.expected_state==="string"?JSON.parse(evidence.expected_state):evidence.expected_state);
+  if(current.verificationMethods["hail-identity"]!==state.sourceIdentityKey||
+    current.verificationMethods["hail-messaging"]!==verified.snapshot.sourceMessagingPublicKey||
+    current.services.hail?.endpoint!==`${state.provider}/hail`)
+    throw new Error("Managed snapshot PLC state differs from the current source roles");
+  const secret=decodeBase64Url(await recoveryInput());
+  try {
+    const owner=await unlockUserVault(JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(
+      await privateFile(vaultPath,16_384))) as UserVaultFile,secret);
+    if(owner.vault.did!==state.did||owner.vault.recovery.publicDidKey!==state.ownerRecoveryKey)
+      throw new Error("Vault does not own this managed account");
+    const cutover=await owner.signManagedTransferCutover(current,evidence.operation_cid,rotation.public_key,
+      offer.destination_rotation_key,offer.destination_identity_key,offer.destination_messaging_key,`${state.destination}/hail`);
+    const now=Math.floor(Date.now()/1000),approval:ManagedTransferApproval={type:"hail.managed-transfer-approval",version:1,
+      did:state.did,nonce:(await reviewGrant(state)).nonce,transfer_id:offer.transfer_id,source_service_base:`${state.provider}/hail`,
+      destination_service_base:`${state.destination}/hail`,destination_address:selection.address,
+      owner_recovery_key:state.ownerRecoveryKey,source_identity_key:state.sourceIdentityKey,
+      destination_rotation_key:offer.destination_rotation_key,destination_identity_key:offer.destination_identity_key,
+      destination_messaging_key:offer.destination_messaging_key,grant_digest:sha(decodeBase64Url(state.grant!.payload)),
+      offer_digest:sha(decodeBase64Url(state.offer!.payload)),selection_digest:sha(decodeBase64Url(state.selection!.payload)),
+      snapshot_version:4,snapshot_digest:verified.hash,history_checkpoint_digest:decodeBase64Url(manifest.historyCheckpointDigest),
+      source_generation:manifest.sourceGeneration,previous_operation_cid:evidence.operation_cid,operation_cid:cutover.cid,
+      issued_at:now,expires_at:now+900};
+    const signed=await owner.signManagedTransferOwnerIntent(approval,cutover.operation),approvalWire={payload:encodeBase64Url(signed.payloadBytes),
+      signature:encodeBase64Url(signed.signature)};
+    await savePrivateBytes(operationPath,cutover.operationBytes);
+    await savePrivateBytes(approvalPath,new TextEncoder().encode(JSON.stringify(approvalWire)));
+    state.cutover={snapshotDigest:encodeBase64Url(verified.hash),snapshotPath,operationPath,approvalPath,operationCid:cutover.cid};
+    await writeState(path,state);
+    return {did:state.did,transferId:offer.transfer_id,operationCid:cutover.cid,
+      operationFile:operationPath,approvalFile:approvalPath,stateFile:path};
+  } finally {secret.fill(0);}
+}
+
+async function post(origin:string,action:"managed-completions"|"managed-retirements",body:unknown,transport:typeof fetch) {
+  const response=await transport(`${destinationOrigin(origin)}/.well-known/hail/transfers/${action}`,{method:"POST",redirect:"error",
+    credentials:"omit",signal:AbortSignal.timeout(15_000),headers:{"Content-Type":"application/hail-transfer+json",
+      "Accept-Encoding":"identity","Cache-Control":"no-store"},body:JSON.stringify(body)});
+  if(response.headers.has("location")||response.headers.has("content-encoding")||
+    (action==="managed-retirements"?response.status!==204:response.status!==200))
+    throw new Error(`Managed ${action} failed (HTTP ${response.status}); retry the exact retained state`);
+  if(action==="managed-retirements"){void response.body?.cancel();return null;}
+  const declared=response.headers.get("content-length");
+  if(response.headers.get("content-type")!=="application/hail-transfer+json"||declared!==null&&(!/^\d+$/.test(declared)||Number(declared)>16_384))
+    throw new Error("Managed completion response is invalid");
+  const reader=response.body?.getReader();if(!reader)throw new Error("Managed completion response is missing");
+  const chunks:Uint8Array[]=[];let size=0;
+  try {while(true){const next=await reader.read();if(next.done)break;size+=next.value.length;
+    if(size>16_384)throw new Error("Managed completion response exceeds its limit");chunks.push(next.value);}}
+  catch(error){await reader.cancel().catch(()=>{});throw error;}
+  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
+  return JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(bytes)) as Record<string,unknown>;
+}
+
+export async function completeManagedTransfer(path:string,snapshotPath:string,transport:typeof fetch=fetch) {
+  const state=await load(path),cutover=state.cutover;
+  if(!cutover||cutover.snapshotPath!==snapshotPath)throw new Error("Managed completion requires the retained signed cutover state");
+  const {offer,reservation}=await retained(state),verified=await managedSnapshot(snapshotPath);snapshotMatches(state,verified.manifest,offer);
+  if(cutover.snapshotDigest!==encodeBase64Url(verified.hash))throw new Error("Managed completion snapshot changed");
+  const operationBytes=await privateFile(cutover.operationPath,16_000),operation=def.operation.parse(
+    JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(operationBytes)));
+  if((await cidForCbor(operation)).toString()!==cutover.operationCid)throw new Error("Managed cutover operation changed");
+  const approval=wire(JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(await privateFile(cutover.approvalPath,16_384))));
+  const result=await post(state.destination,"managed-completions",{snapshot:verified.snapshot,approval,
+    operation:encodeBase64Url(operationBytes)},transport);
+  if(!result||result.type!=="hailp.managed-transfer-completion"||result.version!==1||result.did!==state.did||
+    result.accountId!==state.accountId||result.transferId!==offer.transfer_id||result.operationCid!==cutover.operationCid||
+    result.phase!=="active"||result.generation!==verified.manifest.sourceGeneration+1)
+    throw new Error("Destination did not confirm the exact managed transfer");
+  const receipt=wire(result.receipt),receiptBytes=decodeBase64Url(receipt.payload);
+  await verifySignature("hail.portable-migration-activated.v1",receiptBytes,decodeBase64Url(receipt.signature),offer.destination_messaging_key);
+  const activated=decodeDeterministic(receiptBytes) as Record<string,any>;
+  if(activated.did!==state.did||activated.transfer_id!==offer.transfer_id||activated.destination_service_base!==`${state.destination}/hail`||
+    activated.destination_messaging_key!==offer.destination_messaging_key||activated.destination_address!==reservation.address||
+    !equal(activated.snapshot_digest,verified.hash))throw new Error("Managed activation receipt differs from retained artifacts");
+  if(state.activationReceipt&&JSON.stringify(state.activationReceipt)!==JSON.stringify(receipt))throw new Error("Managed activation receipt changed");
+  state.activationReceipt=receipt;await writeState(path,state);
+  await post(state.provider,"managed-retirements",receipt,transport);
+  state.retired=true;await writeState(path,state);
+  return {did:state.did,transferId:offer.transfer_id,destination:state.destination,address:reservation.address,
+    generation:result.generation,destinationActive:true,sourceRetired:true,credentials:"destination owner-recovery login required",stateFile:path};
 }

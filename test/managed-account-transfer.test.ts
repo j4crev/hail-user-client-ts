@@ -1,4 +1,6 @@
 import {createHash,randomUUID} from "node:crypto";
+import {cidForCbor} from "@atproto/common";
+import {P256Keypair} from "@atproto/crypto";
 import {mkdtemp,readFile,rm,stat,writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
@@ -6,7 +8,8 @@ import {decodeBase64Url,decodeDeterministic,encodeBase64Url,encodeDeterministic,
 import {base58btc} from "multiformats/bases/base58";
 import {expect,it} from "vitest";
 import type {AccountApiClient} from "../src/account-api.js";
-import {managedTransferOffer,managedTransferStatus,selectManagedTransferAddress} from "../src/managed-account-transfer.js";
+import {completeManagedTransfer,exportManagedTransferSnapshot,managedTransferOffer,managedTransferStatus,
+  selectManagedTransferAddress,signManagedTransferCutover} from "../src/managed-account-transfer.js";
 import {createUserVault} from "../src/vault.js";
 
 it("orchestrates exact-retry managed owner authorization through destination reservation",async()=>{
@@ -15,13 +18,14 @@ it("orchestrates exact-retry managed owner authorization through destination res
   await writeFile(vaultPath,JSON.stringify(vault),{mode:0o600});
   const key=async()=>{const pair=await crypto.subtle.generateKey("Ed25519",true,["sign","verify"]),raw=new Uint8Array(await crypto.subtle.exportKey("raw",pair.publicKey));
     return {pair,did:`did:key:${base58btc.encode(new Uint8Array([0xed,1,...raw]))}`};};
-  const [sourceIdentity,sourceMessaging,destinationRotation,destinationIdentity,destinationMessaging]=await Promise.all([key(),key(),key(),key(),key()]);
+  const [sourceIdentity,sourceMessaging,destinationIdentity,destinationMessaging]=await Promise.all([key(),key(),key(),key()]),
+    sourceRotation=await P256Keypair.create(),destinationRotationKey=await P256Keypair.create(),destinationRotation={did:destinationRotationKey.did()};
   const sign=async(value:Record<string,HailValue>,pair:CryptoKeyPair)=>{const payload=encodeDeterministic(value),tag=new TextEncoder().encode(`${value.type}.v1\0`),input=new Uint8Array(tag.length+payload.length);
     input.set(tag);input.set(payload,tag.length);return {payload:encodeBase64Url(payload),signature:encodeBase64Url(new Uint8Array(await crypto.subtle.sign("Ed25519",pair.privateKey,input)))};};
   const hash=(bytes:Uint8Array)=>new Uint8Array(createHash("sha256").update(bytes).digest());
   const account={provider:"https://source.example.com",accountId:randomUUID(),did,custodyProfile:"managed",migrationState:null as string|null,
     scopes:["account:read","account:write"],ownerRecoveryPublicKey:vault.recovery.publicDidKey,identityPublicKey:sourceIdentity.did};
-  let grant:Record<string,any>,acknowledgement:any,offer:any,lostOffer=true;
+  let grant:Record<string,any>,acknowledgement:any,offer:any,lostOffer=true,snapshot:Record<string,unknown>|undefined;
   const status=()=>({type:"hailp.managed-transfer-status",version:1,provider:account.provider,accountId:account.accountId,did,
     phase:"offer-ready",destinationServiceBase:"https://target.example.com/hail",expiresAt:new Date(Date.now()+3600000).toISOString(),
     originConfirmed:true,transferId:offer&&(decodeDeterministic(decodeBase64Url(offer.payload)) as Record<string,any>).transfer_id,
@@ -29,6 +33,7 @@ it("orchestrates exact-retry managed owner authorization through destination res
   const requests:unknown[]=[];
   const client={account:async()=>({...account}),request:async(path:string,body?:Record<string,unknown>)=>{
     if(path==="/transfers/managed")return status();
+    if(path==="/transfers/managed/export")return snapshot!;
     requests.push(body);grant=decodeDeterministic(decodeBase64Url(body!.payload as string)) as Record<string,any>;
     acknowledgement??=await sign({type:"hail.managed-transfer-acknowledgement",version:1,did,nonce:grant.nonce,
       source_service_base:grant.source_service_base,destination_service_base:grant.destination_service_base,
@@ -65,5 +70,49 @@ it("orchestrates exact-retry managed owner authorization through destination res
     expect(prompts).toBe(2);expect(targetBodies[0]).toBe(targetBodies[1]);
     await expect(selectManagedTransferAddress(client,"bob",vaultPath,statePath,secret,transport)).rejects.toThrow("reviewed address/Offer");
     const saved=JSON.parse(await readFile(statePath,"utf8"));expect(saved.reservation).toEqual(reservation);
+    account.migrationState="fenced";
+    const previousCid=(await cidForCbor({fixture:"managed-source"})).toString(),currentState={did,rotationKeys:[vault.recovery.publicDidKey,sourceRotation.did()],
+      verificationMethods:{"hail-identity":sourceIdentity.did,"hail-messaging":sourceMessaging.did},alsoKnownAs:[],
+      services:{hail:{type:"HailMessaging",endpoint:"https://source.example.com/hail"}}},manifest={version:4,custodyProfile:"managed",did,
+      accountId:account.accountId,transferId:(decodeDeterministic(decodeBase64Url(offer.payload)) as Record<string,any>).transfer_id,
+      sourceServiceBase:"https://source.example.com/hail",destinationServiceBase:"https://target.example.com/hail",
+      ownerRecoveryPublicKey:vault.recovery.publicDidKey,sourceIdentityPublicKey:sourceIdentity.did,
+      destinationRotationPublicKey:destinationRotation.did,destinationIdentityPublicKey:destinationIdentity.did,
+      destinationMessagingPublicKey:destinationMessaging.did,sourceGeneration:1,historyCheckpointDigest:encodeBase64Url(new Uint8Array(32).fill(7)),
+      tables:{managed_custody_evidence:[{owner_recovery_public_key:vault.recovery.publicDidKey,
+        provider_identity_public_key:sourceIdentity.did,verification_mode:"poc-local"}],
+        account_keys:[{role:"plc-rotation",public_key:sourceRotation.did()}],
+        plc_operation_evidence:[{operation_cid:previousCid,expected_state:currentState}]}};
+    const manifestBytes=new TextEncoder().encode(JSON.stringify(manifest)),snapshotDigest=hash(manifestBytes),
+      snapshotInput=new Uint8Array("hail-migration-snapshot-v4\0".length+32);
+    snapshotInput.set(new TextEncoder().encode("hail-migration-snapshot-v4\0"));snapshotInput.set(snapshotDigest,"hail-migration-snapshot-v4\0".length);
+    snapshot={type:"hail.managed-migration-transfer",version:4,manifest:encodeBase64Url(manifestBytes),digest:encodeBase64Url(snapshotDigest),
+      signature:encodeBase64Url(new Uint8Array(await crypto.subtle.sign("Ed25519",sourceMessaging.pair.privateKey,snapshotInput))),
+      sourceMessagingPublicKey:sourceMessaging.did};
+    const snapshotPath=join(directory,"snapshot.json"),operationPath=join(directory,"operation.json"),approvalPath=join(directory,"approval.json");
+    expect(await exportManagedTransferSnapshot(client,statePath,snapshotPath)).toMatchObject({state:"exported",snapshotFile:snapshotPath});
+    const cutover=await signManagedTransferCutover(vaultPath,statePath,snapshotPath,operationPath,approvalPath,secret);
+    expect(cutover).toMatchObject({operationFile:operationPath,approvalFile:approvalPath});
+    let completionAttempts=0,retirementAttempts=0;const completionBodies:string[]=[],retirementBodies:string[]=[];
+    const finishTransport=(async(url:string,init:RequestInit)=>{
+      if(url.endsWith("managed-completions")) {
+        completionBodies.push(init.body as string);completionAttempts++;
+        const activatedAt=Math.floor(Date.now()/1000),value={type:"hail.portable-migration-activated",version:1,did,
+          transfer_id:manifest.transferId,snapshot_digest:snapshotDigest,destination_service_base:manifest.destinationServiceBase,
+          destination_messaging_key:destinationMessaging.did,destination_address:"alice@target.example.com",
+          address_binding_digest:new Uint8Array(32).fill(8),activated_at:activatedAt},signedReceipt=await sign(value as unknown as Record<string,HailValue>,destinationMessaging.pair),
+          result={type:"hailp.managed-transfer-completion",version:1,did,accountId:account.accountId,transferId:manifest.transferId,
+            generation:2,operationCid:cutover.operationCid,phase:"active",receipt:signedReceipt};
+        if(completionAttempts===1)throw new Error("lost completion response");
+        return new Response(JSON.stringify(result),{status:200,headers:{"Content-Type":"application/hail-transfer+json"}});
+      }
+      retirementBodies.push(init.body as string);retirementAttempts++;
+      if(retirementAttempts===1)throw new Error("lost retirement response");
+      return new Response(null,{status:204});
+    }) as typeof fetch;
+    await expect(completeManagedTransfer(statePath,snapshotPath,finishTransport)).rejects.toThrow("lost completion response");
+    await expect(completeManagedTransfer(statePath,snapshotPath,finishTransport)).rejects.toThrow("lost retirement response");
+    expect(await completeManagedTransfer(statePath,snapshotPath,finishTransport)).toMatchObject({generation:2,destinationActive:true,sourceRetired:true});
+    expect(new Set(completionBodies).size).toBe(1);expect(new Set(retirementBodies).size).toBe(1);
   } finally {generated.recoverySecret.fill(0);await rm(directory,{recursive:true,force:true});}
 });

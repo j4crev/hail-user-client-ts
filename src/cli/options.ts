@@ -13,6 +13,7 @@ const options = {
   file: { type: "string" }, grant: { type: "string" }, did: { type: "string" }, signer: { type: "string" },
   destination: { type: "string" }, username: { type: "string" }, snapshot: { type: "string" },
   consent: { type: "string" }, operation: { type: "string" }, binding: { type: "string" },
+  approval: { type: "string" },
   "monitor-origin": { type: "string" }, "monitor-key": { type: "string" }, "monitor-attestation": { type: "string" },
   help: { type: "boolean", short: "h" }, version: { type: "boolean" },
 } as const;
@@ -32,6 +33,9 @@ const commands = [
   ["account managed-transfer offer", "", "destination vault state", "", true, "Owner-authorize a managed move and retain the exact destination Offer."],
   ["account managed-transfer status", "", "", "", true, "Read retained managed-transfer handshake state."],
   ["account managed-transfer select", "", "username vault state", "", true, "Owner-select and reserve the destination address; this can fence the source."],
+  ["account managed-transfer export", "", "state output", "", true, "Export and retain the exact signed managed snapshot after fencing."],
+  ["account managed-transfer sign-cutover", "", "vault state snapshot operation approval", "", false, "Owner-sign the exact managed PLC cutover and snapshot approval offline."],
+  ["account managed-transfer complete", "", "state snapshot", "", false, "Stage, cut over, activate and retire using only retained exact artifacts."],
   ["account custody managed", "", "state", "vault", true, "Rotate owner-controlled identity into same-provider managed custody; retain state for exact retries."],
   ["account custody owner-controlled", "", "vault state backup-verified", "", true, "Rotate managed identity into fresh client-held custody; verify backup and retain exact retry state."],
   ["vault create", "", "vault recovery-file", "", false, "Create two private files: encrypted vault and separate encryption secret."],

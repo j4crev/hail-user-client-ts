@@ -25,6 +25,11 @@ it("proves the process contract and rejects misplaced options, duplicate flags a
     ["grant", "update", id, "--output", "x", "--category", "a", "--expires-at", "1.5"],
   ]) expect(() => parseCommand(args)).toThrow();
   expect(parseCommand(["grant", "update", "--help"]).help).toContain("fresh verified consent");
+  expect(parseCommand(["account","managed-transfer","export","--state","state.json","--output","snapshot.json",
+    "--credentials","credential.json"]).authenticated).toBe(true);
+  expect(parseCommand(["account","managed-transfer","sign-cutover","--vault","vault.json","--state","state.json",
+    "--snapshot","snapshot.json","--operation","operation.json","--approval","approval.json"]).authenticated).toBe(false);
+  expect(parseCommand(["account","managed-transfer","complete","--state","state.json","--snapshot","snapshot.json"]).authenticated).toBe(false);
   expect(parseCommand(["grant", "create", "sender@example.com", "--category", "a", "--category", "b", "--output", "x"]).values.category).toEqual(["a", "b"]);
 },15_000);
 

@@ -230,6 +230,64 @@ The narrow slice refuses unacknowledged/conflicting Grant predecessors, nullifie
 or disputed PLC history, mixed custody, non-strict authority and pre-existing
 destination ownership. Those cases remain separate reconciliation work.
 
+### Managed private-PLC operationalization checklist
+
+Migration 49 is deployed to both POC providers, but the managed completion path
+is deliberately not wired into startup and its federation routes remain disabled.
+Before calling managed migration usable on the private-PLC POC:
+
+- [x] Add one disabled-by-default private-PLC managed-transfer feature flag and
+  reject incompatible registry/profile configuration at startup.
+- [x] Wire managed invitation, reservation, fence, export, staging, configured-
+  registry submission, activation, receipt and retirement services into startup.
+- [x] Add authenticated source export and bounded, exact-artifact destination
+  completion APIs without exposing private keys or source credentials.
+- [x] Add `hailp account managed-transfer export`, cutover signing and completion
+  commands with durable state and byte-identical retry checks.
+- [ ] Complete a disposable HTTPS `hailproto.app → hailproto.dev → hailproto.app`
+  managed move against the configured private PLC.
+- [ ] Restart providers between phases and deliberately lose Offer, export, PLC,
+  activation and retirement responses; resume only the retained exact artifacts.
+- [ ] Verify fresh owner-recovery login, no credential transport, old credential/
+  worker rejection, message and Grant continuity, terminal evidence, and serving
+  generations `1 → 2 → 3`.
+- [ ] Retain pre-rollout backups and evidence, roll providers individually, verify
+  external readiness/alerts, and keep managed routes disabled after any failed gate.
+
+### Production enablement: required versus deferrable
+
+The following are actual blockers before enabling managed migration against a
+public PLC. Each may be satisfied by implemented automation or a reviewed,
+fail-closed operational procedure; production does not require speculative UI or
+platform work unrelated to the declared launch environment.
+
+- [ ] Freeze and review the enabled managed-custody/read-evidence profile, complete
+  its applicable conformance cases, and version every retained production record.
+- [ ] Use independently administered PLC readers/monitoring with reviewed bootstrap,
+  bounded freshness, disagreement/gap refusal, external alerting and recovery-window
+  outage exercises. Same-VPS observers are not independent evidence.
+- [ ] Prove a disposable public-PLC onboarding and managed round trip before any
+  non-disposable account; retain exact public write/readback and authority evidence.
+- [ ] Establish durable owner recovery backup, provider key protection, least-
+  privilege operator access, rate/size limits, audit retention and incident ownership.
+- [ ] Define and exercise cross-host backup/restore from the latest accepted state,
+  including stale credential, challenge, worker and generation rejection.
+- [ ] Handle unsupported historical states safely: acknowledged predecessors may
+  migrate; unacknowledged, conflicting, nullified or disputed history must either
+  reconcile under a reviewed algorithm or remain blocked with an operator-visible
+  recovery path. Supporting every historical edge case is not a launch requirement.
+- [ ] Define pre-activation abandonment and ambiguous-activation recovery. Automated
+  rollback is optional, but reopening a stale source, relying on expiry, or silently
+  losing accepted state is forbidden.
+- [ ] Calibrate and enforce a documented supported load envelope, then prove alerts
+  and recovery at that boundary; unbounded scale testing is not required.
+
+Hardware-backed/device-keystore integration, cross-platform binaries, automatic
+provider discovery and a polished consumer review UI are valuable follow-up work,
+not universal backend production blockers. They become release requirements only
+when the chosen client platform, custody threat model or product promise depends
+on them.
+
 ## Historical identity and binding gate
 
 The implemented same-provider paths accept only active authoritative
@@ -239,7 +297,7 @@ then installs those successors in the custody transaction. Terminal lineages are
 left unchanged. Unacknowledged and conflicting predecessors still block.
 Managed cross-provider materialization now applies the same acknowledged-
 predecessor rule and signs a successor with the destination identity. Production
-enablement remains gated on the complete round trip and rollout controls.
+enablement remains gated on operational wiring and the production controls above.
 
 - Retain each original COSE representation/digest, exact signer public key,
   validated PLC operation/audit evidence, trusted observations/checkpoints,
@@ -268,16 +326,11 @@ shared DID-profile specification work; this local design does not define them.
 
 ## Return to a former provider
 
-The additive [migration 36 foundation](lifecycle-history-migration.md) now captures
-retired history and separate generation-1 metadata. It does not permit advancement,
-detach a live fence or replace a returning projection; the positive proof below
-remains a gate.
-
-The next [migration 37/38 stage](generation-bound-return.md) now implements and
-proves the stable-owner-identity private-POC return subset, with generation-bound
-admission and collocated state preservation. Managed/custody transitions and
-post-export abandonment remain outside that gate; public historical authority
-is not established by the private return proof.
+The [migration 36–38 foundation](generation-bound-return.md) captures immutable
+retired history and proves generation-bound stable-owner private-POC returns.
+Migration 49 adds the managed A → B → A materialization proof with fresh provider
+roles. The managed runtime remains disabled on the VPS, and neither local proof
+establishes public historical authority or post-export abandonment safety.
 
 Treat A → B → A as two new transfers, not an undo of A → B. A generates fresh
 operational keys and a fresh import/Offer/transfer ID; a retired identity key

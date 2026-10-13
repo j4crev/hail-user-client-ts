@@ -20,7 +20,8 @@ import { renewBinding,showBinding } from "../binding-renewal.js";
 import { updateGrant } from "../grant-update.js";
 import { transferOffer,transferStatus,cancelTransfer,selectTransferAddress,exportTransferSnapshot,signAccountTransferCutover,completeAccountTransfer } from "../account-transfer.js";
 import { transitionToManaged,transitionToOwner } from "../custody-transition.js";
-import {managedTransferOffer,managedTransferStatus,selectManagedTransferAddress} from "../managed-account-transfer.js";
+import {completeManagedTransfer,exportManagedTransferSnapshot,managedTransferOffer,managedTransferStatus,
+  selectManagedTransferAddress,signManagedTransferCutover} from "../managed-account-transfer.js";
 
 try {
   const parsed = parseCommand(Bun.argv.slice(2));
@@ -64,12 +65,19 @@ try {
       printResult(result);
       }
     } else if(group==="account"&&command==="managed-transfer") {
+      if(argument==="sign-cutover") {
+        printResult(await signManagedTransferCutover(values.vault!,values.state!,values.snapshot!,values.operation!,values.approval!));
+      } else if(argument==="complete") {
+        printResult(await completeManagedTransfer(values.state!,values.snapshot!));
+      } else {
       const credential=values.credentials ?? Bun.env.HAILP_CREDENTIAL_FILE;
       if(!credential)throw new Error("Set --credentials or HAILP_CREDENTIAL_FILE");
       const client=await AccountApiClient.fromCredentialFile(credential,selection);
       printResult(argument==="status"?await managedTransferStatus(client):argument==="offer"?
         await managedTransferOffer(client,values.destination!,values.vault!,values.state!):
-        await selectManagedTransferAddress(client,values.username!,values.vault!,values.state!));
+        argument==="export"?await exportManagedTransferSnapshot(client,values.state!,values.output!):
+          await selectManagedTransferAddress(client,values.username!,values.vault!,values.state!));
+      }
     } else if(group==="account"&&command==="custody") {
       const credential=values.credentials ?? Bun.env.HAILP_CREDENTIAL_FILE;
       if(!credential)throw new Error("Set --credentials or HAILP_CREDENTIAL_FILE");
