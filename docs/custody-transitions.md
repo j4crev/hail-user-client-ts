@@ -274,7 +274,7 @@ blockers before enabling managed migration against the public PLC.
 
 #### Complete before the public-PLC switch
 
-- [ ] Freeze and review the enabled managed-custody/read-evidence profile, complete
+- [x] Freeze and review the enabled managed-custody/read-evidence profile, complete
   all applicable conformance cases against private fixtures, and version every
   retained production record.
 - [ ] Implement a separate, disabled-by-default public managed-transfer runtime
@@ -301,6 +301,16 @@ blockers before enabling managed migration against the public PLC.
 - [ ] Calibrate and enforce a documented supported load envelope on private clones,
   then prove alerts and recovery at that boundary. Do not load-test the public PLC;
   unbounded scale testing is not required.
+
+The first item completed October 13, 2026. The frozen identifiers are
+`hail-managed-custody-v1` and `hail.plc-read-evidence-v1`; their
+[MC-01–MC-14 review](https://github.com/j4crev/hailproto/blob/main/spec/managed-custody-conformance-v1.md)
+maps each private-fixture proof and explicitly leaves public/deployment evidence
+to the gates below. Provider migration 50 backfills candidate rows, requires new
+managed/onboarding/transition writers to retain the managed profile, and versions
+public onboarding, resolution and cutover evidence independently from custody,
+registry and activation modes. Legacy exact private-POC snapshot retries remain
+readable but cannot be promoted to strict-public evidence.
 
 #### Final evidence that requires the public environment
 

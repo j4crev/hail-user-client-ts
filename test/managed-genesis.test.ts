@@ -9,11 +9,27 @@ import { base58btc } from "multiformats/bases/base58";
 import { expect, it, vi } from "vitest";
 import { createUserVault, unlockUserVault } from "../src/vault.js";
 import { createAccount } from "../src/account-creation.js";
+import { AccountApiClient } from "../src/account-api.js";
 
 async function edKey() {
   const pair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
   return `did:key:${base58btc.encode(new Uint8Array([0xed, 1, ...new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey))]))}`;
 }
+
+it("MC-01: requires the frozen profile on strict-public managed account records",async()=>{
+  const provider="https://provider.example.com",identity=await edKey(),owner=await P256Keypair.create();
+  const account={type:"hailp.account",version:1,provider,accountId:"",did:`did:plc:${"a".repeat(24)}`,
+    address:"owner@provider.example.com",migrationState:null,custodyProfile:"managed",monitorVerificationMode:"strict-public-v1",
+    identityPublicKey:identity,ownerRecoveryPublicKey:owner.did(),scopes:["account:read"],credential:undefined};
+  vi.stubGlobal("fetch",async()=>new Response(JSON.stringify(account),{headers:{"Content-Type":"application/json"}}));
+  try {
+    const client=AccountApiClient.signup(provider,`hailp_${encodeBase64Url(crypto.getRandomValues(new Uint8Array(32)))}`);
+    await expect(client.account()).rejects.toThrow("contract");
+    vi.stubGlobal("fetch",async()=>new Response(JSON.stringify({...account,managedProfileVersion:"hail-managed-custody-v1"}),
+      {headers:{"Content-Type":"application/json"}}));
+    await expect(client.account()).resolves.toMatchObject({custodyProfile:"managed",managedProfileVersion:"hail-managed-custody-v1"});
+  }finally{vi.unstubAllGlobals();}
+});
 
 it("MC-02/03: signs only the reviewed managed new-genesis subset and rechecks it when binding", async () => {
   const generated = await createUserVault();
@@ -85,6 +101,7 @@ it("MC-04: retains managed signup bytes after response loss and rejects changed 
   const transport = vi.fn(async (url: string, init: RequestInit) => {
     const body = JSON.parse(init.body as string); requests.push({ url, body });
     if (url.endsWith("/onboarding")) return json({ accountId, address, custodyProfile: "managed",
+      managedProfileVersion: "hail-managed-custody-v1",
       userRecoveryKey: generated.vault.recovery.publicDidKey, userIdentityKey: identity,
       providerRotationKey: rotation.did(), providerMessagingKey: messaging, sourceServiceBase: `${provider}/hail` });
     if (lost) { lost = false; return new Response(null, { status: 503 }); }

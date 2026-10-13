@@ -1,6 +1,6 @@
 # Milestone 7 — managed-profile foundation and production gates
 
-Status: started, October 11, 2026. Package version stays **0.1.0**. Milestone 6
+Status: managed/read-evidence v1 profiles frozen October 13, 2026. Package version stays **0.1.0**. Milestone 6
 is committed locally as client `d7a9830` and provider `0ac5461`; neither was pushed.
 The milestone-7 work now includes the managed draft/genesis slice and the next
 read-evidence/monitor-bootstrap and durable cutover-evidence slices. These are local reference checks, not
@@ -300,7 +300,7 @@ representations remain unchanged. Rollback is refused once reverse evidence exis
 
 | Gate | Current evidence | Needed before enabling |
 | --- | --- | --- |
-| Managed-profile review/conformance | Versioned candidate; reference genesis/retry subset tested | Review full candidate; complete applicable MC cases and versioned retained production custody evidence |
+| Managed-profile review/conformance | `hail-managed-custody-v1` and `hail.plc-read-evidence-v1` frozen; applicable private-fixture MC-01–MC-14 review complete; provider migration 50 enforces retained versions | Preserve passing conformance evidence; public/deployment portions remain in their corresponding gates |
 | Shared PLC authority policy | Opt-in strict fresh routine resolver, immutable cutover/read bundles and envelope/Grant/binding/profile/status action bindings locally implemented | Review current/recovery-window policy and preserve authority history across transfer/restoration |
 | Independent monitor/bootstrap | Reviewed checkpoint, contiguous catch-up, fresh transfer v2 and onboarding-genesis attestations locally tested; same-VPS deployment remains non-independent | Independently administered hosts/readers, external health supervision and real alert/outage/recovery proof |
 | Public onboarding | Opt-in owner/monitor API/CLI ceremony, exact write/readback and immutable activation evidence locally tested | Real public write, non-disposable owner backup/monitor deployment, abuse controls and cross-host operational proof |

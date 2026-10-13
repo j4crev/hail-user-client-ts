@@ -8,6 +8,7 @@ import { AccountApiClient } from "./account-api.js";
 import { privateFile,savePrivateBytes } from "./grant-revocation.js";
 import { unlockUserVault,reviewManagedGenesis,type UserVaultFile } from "./vault.js";
 import { readRecoverySecret } from "./cli/private-input.js";
+import { MANAGED_CUSTODY_PROFILE_VERSION } from "./managed-profile.js";
 
 export async function writeState(path:string,data:unknown) {
   const temporary=`${path}.tmp-${randomUUID()}`;
@@ -37,6 +38,9 @@ export async function createAccount(provider:string,address:string,custody:"owne
        signupHash:encodeBase64Url(new Uint8Array(createHash("sha256").update(state.token).digest())),
        ...(monitor?{monitorOrigin:monitor.origin,monitorKey:monitor.publicKey}:{})},"/api/v1/onboarding");
     if(prepared.address!==address.toLowerCase()||prepared.userRecoveryKey!==user.vault.recovery.publicDidKey||prepared.custodyProfile!==custody||
+      (custody==="managed" ? prepared.managedProfileVersion!==MANAGED_CUSTODY_PROFILE_VERSION &&
+        (monitor!==undefined||prepared.managedProfileVersion!==undefined) :
+        prepared.managedProfileVersion!==null&&prepared.managedProfileVersion!==undefined)||
       (custody==="owner-controlled"&&prepared.userIdentityKey!==user.vault.identity.publicDidKey)||
        prepared.sourceServiceBase!==`${provider}/hail`||typeof prepared.accountId!=="string"||
        !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(prepared.accountId)||

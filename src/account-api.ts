@@ -3,6 +3,7 @@ import { isIP } from "node:net";
 import { decodeBase64Url, encodeBase64Url, inspectSignedPayload, fromDiagnosticJson, type DiagnosticJson, type HailGrant } from "@hailproto/codec";
 import { privateFile } from "./grant-revocation.js";
 import { ClientError } from "./client-error.js";
+import { MANAGED_CUSTODY_PROFILE_VERSION } from "./managed-profile.js";
 
 const GRANT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
@@ -119,6 +120,11 @@ export class AccountApiClient {
       typeof result.address !== "string" || result.address.length > 254 ||
       ![null, "fenced", "exported", "retired"].includes(result.migrationState as null | string) ||
       !["owner-controlled", "managed", "custodial-poc", "unknown"].includes(result.custodyProfile as string) ||
+      (result.custodyProfile === "managed" && result.monitorVerificationMode === "strict-public-v1" &&
+        result.managedProfileVersion !== MANAGED_CUSTODY_PROFILE_VERSION) ||
+      (result.custodyProfile !== "managed" && result.managedProfileVersion !== null && result.managedProfileVersion !== undefined) ||
+      (result.managedProfileVersion !== undefined && result.managedProfileVersion !== null &&
+        result.managedProfileVersion !== MANAGED_CUSTODY_PROFILE_VERSION) ||
       !publicKey(result.identityPublicKey) || !publicKey(result.ownerRecoveryPublicKey) ||
       ![null, "independent", "poc-local", "strict-public-v1"].includes(result.monitorVerificationMode as null | string) ||
        !Array.isArray(result.scopes) || !result.scopes.every(scope => ACCOUNT_API_SCOPES.includes(scope))) {
@@ -136,7 +142,7 @@ export class AccountApiClient {
     return { provider: this.provider, accountId: this.accountId, did: result.did, address: result.address,
       migrationState: result.migrationState, custodyProfile: result.custodyProfile, scopes: result.scopes,
       monitorVerificationMode: result.monitorVerificationMode, identityPublicKey: result.identityPublicKey,
-      ownerRecoveryPublicKey: result.ownerRecoveryPublicKey, credential };
+      ownerRecoveryPublicKey: result.ownerRecoveryPublicKey, managedProfileVersion: result.managedProfileVersion ?? null, credential };
   }
 
   async grant(id: string): Promise<{ representation: Uint8Array; payload: HailGrant; localRole: "grantor" | "grantee"; digest: string }> {
