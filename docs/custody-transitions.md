@@ -244,15 +244,25 @@ Before calling managed migration usable on the private-PLC POC:
   completion APIs without exposing private keys or source credentials.
 - [x] Add `hailp account managed-transfer export`, cutover signing and completion
   commands with durable state and byte-identical retry checks.
-- [ ] Complete a disposable HTTPS `hailproto.app → hailproto.dev → hailproto.app`
+- [x] Complete a disposable HTTPS `hailproto.app → hailproto.dev → hailproto.app`
   managed move against the configured private PLC.
-- [ ] Restart providers between phases and deliberately lose Offer, export, PLC,
+- [x] Restart providers between phases and deliberately lose Offer, export, PLC,
   activation and retirement responses; resume only the retained exact artifacts.
-- [ ] Verify fresh owner-recovery login, no credential transport, old credential/
+- [x] Verify fresh owner-recovery login, no credential transport, old credential/
   worker rejection, message and Grant continuity, terminal evidence, and serving
   generations `1 → 2 → 3`.
-- [ ] Retain pre-rollout backups and evidence, roll providers individually, verify
+- [x] Retain pre-rollout backups and evidence, roll providers individually, verify
   external readiness/alerts, and keep managed routes disabled after any failed gate.
+
+Completed October 13, 2026. The live disposable round trip used DID
+`did:plc:j5x2ftke7574uzkjgj547loq`; retained server evidence and verified backups
+are under `/var/backups/hail-poc/pre-managed-operationalization-20261013T004200Z`.
+The live run covered provider restarts and deliberately lost Offer, reservation,
+export, completion/activation and retirement responses. The disposable-PostgreSQL
+proof covers a lost PLC response, non-empty message/active-Grant/terminal-Grant
+continuity and stale-worker rejection. Both providers run source `5d4d219` and
+image `hail-server-ts:poc-managed-operationalization-20261013-fix1`. This remains
+a configured private-PLC POC, not independent/public production evidence.
 
 ### Production enablement: required versus deferrable
 
