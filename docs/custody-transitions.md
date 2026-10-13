@@ -266,31 +266,54 @@ a configured private-PLC POC, not independent/public production evidence.
 
 ### Production enablement: required versus deferrable
 
-The following are actual blockers before enabling managed migration against a
-public PLC. Each may be satisfied by implemented automation or a reviewed,
-fail-closed operational procedure; production does not require speculative UI or
-platform work unrelated to the declared launch environment.
+The private PLC runs the same directory implementation as the public service, so
+it can prove protocol behavior and most operational controls. Its observations
+remain `poc-local`: they do not prove public deployment configuration, operator
+independence, network behavior, limits or reader agreement. Both groups below are
+blockers before enabling managed migration against the public PLC.
+
+#### Complete before the public-PLC switch
 
 - [ ] Freeze and review the enabled managed-custody/read-evidence profile, complete
-  its applicable conformance cases, and version every retained production record.
-- [ ] Use independently administered PLC readers/monitoring with reviewed bootstrap,
-  bounded freshness, disagreement/gap refusal, external alerting and recovery-window
-  outage exercises. Same-VPS observers are not independent evidence.
-- [ ] Prove a disposable public-PLC onboarding and managed round trip before any
-  non-disposable account; retain exact public write/readback and authority evidence.
-- [ ] Establish durable owner recovery backup, provider key protection, least-
+  all applicable conformance cases against private fixtures, and version every
+  retained production record.
+- [ ] Implement a separate, disabled-by-default public managed-transfer runtime
+  using the strict public resolver and cutover evidence. Keep the private gate
+  incompatible with `https://plc.directory` and test the public path through
+  injected fixtures without weakening that guard.
+- [ ] Deploy PLC readers/monitoring on independently administered hosts and, against
+  the private PLC, exercise reviewed bootstrap, complete backfill, bounded freshness,
+  disagreement/gap refusal, external alerting and recovery-window outages. Same-VPS
+  observers are not independent evidence.
+- [ ] Establish durable owner-recovery backup, provider key protection, least-
   privilege operator access, rate/size limits, audit retention and incident ownership.
-- [ ] Define and exercise cross-host backup/restore from the latest accepted state,
-  including stale credential, challenge, worker and generation rejection.
-- [ ] Handle unsupported historical states safely: acknowledged predecessors may
-  migrate; unacknowledged, conflicting, nullified or disputed history must either
-  reconcile under a reviewed algorithm or remain blocked with an operator-visible
-  recovery path. Supporting every historical edge case is not a launch requirement.
-- [ ] Define pre-activation abandonment and ambiguous-activation recovery. Automated
-  rollback is optional, but reopening a stale source, relying on expiry, or silently
-  losing accepted state is forbidden.
-- [ ] Calibrate and enforce a documented supported load envelope, then prove alerts
-  and recovery at that boundary; unbounded scale testing is not required.
+- [ ] Exercise cross-host backup/restore from the latest accepted private state,
+  including stale credential, challenge, worker, lease and generation rejection.
+- [ ] Handle unsupported historical states safely using private/synthetic histories:
+  acknowledged predecessors may migrate; unacknowledged, conflicting, nullified or
+  disputed history must reconcile under a reviewed algorithm or remain blocked with
+  an operator-visible recovery path. Supporting every historical edge case is not a
+  launch requirement.
+- [ ] Define and exercise pre-activation abandonment and ambiguous-activation
+  recovery against the private PLC, including delayed replay of signed operations.
+  Automated rollback is optional, but reopening a stale source, relying on expiry,
+  or silently losing accepted state is forbidden.
+- [ ] Calibrate and enforce a documented supported load envelope on private clones,
+  then prove alerts and recovery at that boundary. Do not load-test the public PLC;
+  unbounded scale testing is not required.
+
+#### Final evidence that requires the public environment
+
+- [ ] Bootstrap the independently administered readers against the actual public
+  PLC and prove current agreement, complete history, bounded freshness, gap refusal,
+  external supervision and outage recovery. This step is read-only.
+- [ ] Create one dedicated, non-user production canary DID with durable owner backup.
+  Retain its exact public genesis/write/readback evidence and use that same DID for
+  the managed `provider A → provider B → provider A` round trip. Keep it as a
+  permanent operational canary rather than creating disposable public DIDs.
+- [ ] Perform only low-rate final smoke checks against the real public endpoint,
+  including TLS/network behavior, service limits, strict-public evidence retention
+  and alert delivery. Malformed, destructive and high-volume exercises stay private.
 
 Hardware-backed/device-keystore integration, cross-platform binaries, automatic
 provider discovery and a polished consumer review UI are valuable follow-up work,
