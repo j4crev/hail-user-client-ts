@@ -13,7 +13,7 @@
     "transfer:cancel": "bun src/cli/cancel-transfer.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsc -p tsconfig.cli.json && bun run build:binary",
-    "build:binary": "bun build --compile src/cli/hailp.ts --outfile dist/hailp",
+    "build:binary": "bun build --compile --target=bun-linux-x64-baseline src/cli/hailp.ts --outfile dist/hailp",
     "smoke": "bun scripts/smoke.ts",
     "verify:install": "bun scripts/verify-install.ts",
     "test": "bun --bun vitest run",

@@ -50,6 +50,10 @@ bun run smoke -- dist/hailp
 install -Dm755 dist/hailp "$HOME/.local/bin/hailp"
 ```
 
+Tagged releases build the baseline-compatible Linux x86-64 executable, package
+it as `hailp-<version>-linux-x64.tar.gz`, and publish a SHA-256 checksum. The
+public canary ceremony is documented in [`docs/public-canary.md`](docs/public-canary.md).
+
 ## Use an existing account
 
 Set the path to a private credential file issued for the account. The token
