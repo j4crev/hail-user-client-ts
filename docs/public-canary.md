@@ -6,9 +6,9 @@ production user.
 
 ## Prerequisites
 
-- A caught-up configured PLC reader and direct access to `https://plc.directory`
+- Direct validated access to `https://plc.directory`
 - Public self-service onboarding enabled on the provider
-- A monitor caught up from PLC sequence zero with a durable signing key
+- A monitor with a durable signing key and fresh per-DID audit polling
 - A reviewed monitor origin/key and HTTPS alert destination
 - A private workstation directory plus independent backup storage
 
@@ -45,7 +45,7 @@ hailp account create \
 
 The first call publishes the exact genesis, saves the DID/CID and exits with
 `monitorRequired`. Keep every file unchanged. Enroll that DID, reviewed genesis
-CID/state and alert destination with the monitor, wait for contiguous catch-up,
+CID/state and alert destination with the monitor, wait for a fresh audit poll,
 then create `/secure/hail-canary/onboarding-attestation.json` with the monitor's
 `monitor:attest-onboarding` command.
 
