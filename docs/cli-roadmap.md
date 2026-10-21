@@ -27,6 +27,7 @@ protocol boundary.
 - Grant creation, inspection, update, submission, and signed revocation.
 - Text send, invited reply, inbox reads, resubmission, and retained status.
 - Address Binding renewal.
+- Authenticated Sender Profile creation, inspection and optimistic-revision update.
 - Owner-controlled provider transfer, cancellation before fencing, exact
   cutover signing, completion, and forward return to a former provider.
 - Managed-profile and strict-public onboarding/authority conformance slices
@@ -48,22 +49,28 @@ protocol boundary.
   receipt. Disposable PostgreSQL proof now completes A → B → A with fresh roles,
   monotonic generations and immutable history. Public CLI completion remains
   disabled.
+- Strict-public owner-controlled onboarding is deployed at `hailproto.app` and
+  `hailproto.dev`. Two backed-up public canaries have published Sender Profiles,
+  reciprocal Grants and terminally delivered messages in both directions while
+  enrolled in the separately hosted public monitor.
 
-The private-PLC deployments and local proof environment do not establish public
-production readiness or independent monitoring.
+This public-alpha proof does not establish production readiness: both providers
+share one VPS, public managed migration remains disabled, and restoration/load
+and monitor-outage exercises remain open.
 
 ## Remaining production gates
 
-1. Finish review of the managed-custody and PLC read-evidence specifications.
-2. Exercise public `plc.directory` onboarding and recovery with non-disposable
-   identity and recovery material.
-3. Operate monitor/read paths independently from providers and test bootstrap,
-   disagreement, gaps, alerts, and recovery inside the PLC recovery window.
+1. Add external dead-man supervision for the monitor and exercise disagreement,
+   gaps, outages and recovery inside the PLC recovery window.
+2. Prove cross-host provider/monitor restoration from latest accepted state and
+   independently stored keys/backups.
+3. Use a dedicated public canary for the managed provider A → B → A ceremony
+   only after its remaining operational controls pass.
 4. Keep the completed private-PLC managed-migration path behind its explicit POC
    gate; production remains subject to the required controls in
    [custody transitions](custody-transitions.md#production-enablement-required-versus-deferrable).
-5. Prove cross-host restoration, historical signed-object audits, and load
-   limits on independently operated infrastructure.
+5. Complete historical-state handling, abandonment recovery, abuse controls and
+   documented load limits on private clones.
 6. Integrate device-keystore or hardware protection and verify cross-platform
    binary distribution.
 

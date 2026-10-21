@@ -1,11 +1,11 @@
 # Hail user client
 
 `hailp` is the Hail Protocol reference CLI for account setup, credentials,
-Grants, messages, vault backups, and provider transfers. It talks to a
+Sender Profiles, Grants, messages, vault backups, and provider transfers. It talks to a
 provider's account API over HTTPS and keeps user signing keys on the client.
 
 This repository is a reference implementation, not a finished consumer app.
-The file-based vault, Bun toolchain, private-PLC POC, and local monitor setup
+The file-based vault, Bun toolchain, private-PLC fixtures, and reference monitor
 are implementation and test choices—not requirements of the Hail protocol.
 
 ## Start here
@@ -63,6 +63,7 @@ stays in the file; never put it on the command line or in a URL.
 export HAILP_CREDENTIAL_FILE=/secure/account/api.credential.json
 
 hailp account show
+hailp profile show
 hailp grant list
 hailp inbox list
 ```
@@ -103,7 +104,8 @@ hailp account create \
 
 Use `--custody managed` only when provider-held identity signing is intended.
 Both profiles keep the top PLC recovery key with the owner. Strict-public
-onboarding also requires monitor options; see the
+onboarding also requires monitor options and an explicit Sender Profile before
+Grant testing; see the
 [signup workflow](docs/cli-workflows.md#create-an-account).
 
 ## Important file and retry rules
@@ -123,9 +125,10 @@ onboarding also requires monitor options; see the
 
 ## Scope and limitations
 
-The CLI currently exercises private-PLC deployments and a locally verified
-strict-public onboarding subset. It does not by itself establish independent
-monitoring, production recovery, hardware-backed key storage, or a public
-cross-provider client API standard. See the [roadmap](docs/cli-roadmap.md) for
+The CLI now exercises two public-alpha providers with owner-controlled
+`plc.directory` canaries, explicit Sender Profiles, reciprocal Grants and
+bidirectional delivered messages. It does not by itself establish production
+monitor independence, recovery, hardware-backed key storage, or a standardized
+cross-provider client API. See the [roadmap](docs/cli-roadmap.md) for
 the remaining production gates and `../hailproto` for normative protocol
 specifications.

@@ -301,10 +301,10 @@ representations remain unchanged. Rollback is refused once reverse evidence exis
 | Gate | Current evidence | Needed before enabling |
 | --- | --- | --- |
 | Managed-profile review/conformance | `hail-managed-custody-v1` and `hail.plc-read-evidence-v1` frozen; applicable private-fixture MC-01–MC-14 review complete; provider migration 50 enforces retained versions | Preserve passing conformance evidence; public/deployment portions remain in their corresponding gates |
-| Shared PLC authority policy | Opt-in strict fresh routine resolver, immutable cutover/read bundles and envelope/Grant/binding/profile/status action bindings locally implemented | Review current/recovery-window policy and preserve authority history across transfer/restoration |
+| Shared PLC authority policy | Deployed strict-public providers default to one canonical `/log/audit` read, retain complete evidence and use public canaries as diagnostics; optional replicas remain fallback-only | Preserve authority history across transfer/restoration and complete recovery-window operational exercises |
 | Strict-public managed runtime | Separate disabled-by-default runtime and two-phase CLI completion; injected strict resolver/monitor A → B → A proof, retained cutover sealing and fail-closed configuration | Keep disabled until independent deployment, recovery/load controls and permanent public canary gates pass |
-| Independent monitor/bootstrap | Reviewed checkpoint, contiguous catch-up, fresh transfer v2 and onboarding-genesis attestations locally tested; same-VPS deployment remains non-independent | Independently administered hosts/readers, external health supervision and real alert/outage/recovery proof |
-| Public onboarding | Opt-in owner/monitor API/CLI ceremony, exact write/readback and immutable activation evidence locally tested | Real public write, non-disposable owner backup/monitor deployment, abuse controls and cross-host operational proof |
+| Independent monitor/bootstrap | Separately hosted public monitor retains complete per-DID audits for two canaries; reviewed onboarding attestations and signed external email alerts are live | External dead-man supervision plus real outage, disagreement and recovery proof; same hosting-provider failure remains a shared risk |
+| Public onboarding | `hailproto.app` and `hailproto.dev` activated backed-up owner-controlled `plc.directory` canaries through independent signed monitor evidence; Sender Profiles, reciprocal Grants and bidirectional delivery passed | Production identity policy, abuse controls and cross-host operational proof |
 | Historical reconciliation / managed transitions | Both same-provider directions and configured-registry A → B → A managed moves prove acknowledged predecessors, fresh intended-party identity, preserved terminal/history bytes and atomic generation/custody cutover | Operationalize managed moves; reconcile unsupported history or keep it explicitly blocked |
 | Cross-host operation/restoration/load | Local/private continuity and migration proofs | Independently operated infrastructure, calibrated limits and latest accepted-state/ownership restoration under failures |
 
@@ -328,12 +328,10 @@ Cross-provider managed migration now has local configured-registry proof through
 destination materialization, exact source retirement and disposable-database
 A → B → A proof in provider migration 49. The separate `PUBLIC_MANAGED_TRANSFER`
 runtime now passes the same round trip under the real strict-public resolver and
-public cutover gate with injected readers/PLC only. It remains disabled; no public
-PLC request or deployed registry/flag change was made. Independent infrastructure
-and private operational rehearsals remain next, before any public rollout.
-Deployment work must later exercise onboarding and v3 history restoration against
-real independently operated readers/monitor and public PLC, deliberately outside
-these local migration tests.
+public cutover gate with injected readers/PLC only. It remains disabled. Public
+owner-controlled onboarding and messaging are now deployed, but no public managed
+transfer has been attempted. Independent provider infrastructure and restoration
+rehearsals remain next before enabling that runtime.
 Local implementation does not settle pre-migration historical authority,
 nullified-branch reconciliation or operational independence.
 Production infrastructure still needs explicit independent hosts/operators, durable

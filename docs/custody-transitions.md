@@ -269,10 +269,11 @@ a configured private-PLC POC, not independent/public production evidence.
 The private PLC runs the same directory implementation as the public service, so
 it can prove protocol behavior and most operational controls. Its observations
 remain `poc-local`: they do not prove public deployment configuration, operator
-independence, network behavior, limits or reader agreement. Both groups below are
-blockers before enabling managed migration against the public PLC.
+independence, network behavior, limits or reader agreement. The remaining items
+below block public managed migration; owner-controlled public-alpha onboarding is
+already enabled separately.
 
-#### Complete before the public-PLC switch
+#### Complete before the public managed-transfer switch
 
 - [x] Freeze and review the enabled managed-custody/read-evidence profile, complete
   all applicable conformance cases against private fixtures, and version every
@@ -281,12 +282,16 @@ blockers before enabling managed migration against the public PLC.
   using the strict public resolver and cutover evidence. Keep the private gate
   incompatible with `https://plc.directory` and test the public path through
   injected fixtures without weakening that guard.
-- [ ] Deploy PLC readers/monitoring on independently administered hosts and, against
-  the private PLC, exercise reviewed bootstrap, complete backfill, bounded freshness,
-  disagreement/gap refusal, external alerting and recovery-window outages. Same-VPS
-  observers are not independent evidence.
-- [ ] Establish durable owner-recovery backup, provider key protection, least-
-  privilege operator access, rate/size limits, audit retention and incident ownership.
+- [x] Deploy a separately hosted public monitor with reviewed bootstrap, complete
+  per-DID audit retention, bounded freshness and externally hosted signed email
+  alerts; enroll both public alpha canaries.
+- [ ] Add external monitor dead-man supervision and exercise live disagreement/gap
+  refusal and recovery-window outages. Same-host or same-provider failures are not
+  independent evidence.
+- [x] Establish durable off-VPS owner-recovery backups and automated weekly VPS
+  backups for the public alpha.
+- [ ] Establish production provider-key protection, least-privilege operator access,
+  rate/size limits, audit retention and incident ownership.
 - [ ] Exercise cross-host backup/restore from the latest accepted private state,
   including stale credential, challenge, worker, lease and generation rejection.
 - [ ] Handle unsupported historical states safely using private/synthetic histories:
@@ -328,20 +333,21 @@ base64url bytes). Only the monitor report may be refreshed; snapshot, approval
 and PLC operation stay exact. Private transfers reject this option. Fixture tests
 exercise both profiles through `A → B → A` and fail closed on missing/invalid/
 stale/gapped/wrong-bootstrap reports, reader outages/disagreement and profile
-mismatch. No public PLC request or deployment change accompanies this gate.
+mismatch. No public PLC request or deployment change accompanied that fixture gate;
+the later owner-controlled alpha deployment did not enable public managed transfer.
 
 #### Final evidence that requires the public environment
 
-- [ ] Bootstrap the independently administered readers against the actual public
-  PLC and prove current agreement, complete history, bounded freshness, gap refusal,
-  external supervision and outage recovery. This step is read-only.
-- [ ] Create one dedicated, non-user production canary DID with durable owner backup.
-  Retain its exact public genesis/write/readback evidence and use that same DID for
-  the managed `provider A → provider B → provider A` round trip. Keep it as a
-  permanent operational canary rather than creating disposable public DIDs.
-- [ ] Perform only low-rate final smoke checks against the real public endpoint,
-  including TLS/network behavior, service limits, strict-public evidence retention
-  and alert delivery. Malformed, destructive and high-volume exercises stay private.
+- [x] Bootstrap the monitor against the actual public PLC and prove complete current
+  history, bounded freshness and external signed-alert delivery for enrolled DIDs.
+- [x] Create backed-up, non-user public alpha canaries for both providers and retain
+  their exact genesis/write/readback and onboarding-monitor evidence.
+- [x] Perform low-rate public TLS, strict-public evidence, Sender Profile, Grant and
+  bidirectional message-delivery smoke checks without malformed or high-volume traffic.
+- [ ] Add external health supervision and prove public outage recovery and supported
+  service limits without load-testing `plc.directory`.
+- [ ] Use a reviewed permanent canary for the managed `provider A → provider B →
+  provider A` round trip before enabling public managed transfer.
 
 Hardware-backed/device-keystore integration, cross-platform binaries, automatic
 provider discovery and a polished consumer review UI are valuable follow-up work,

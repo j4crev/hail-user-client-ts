@@ -41,6 +41,7 @@ mandatory. Lists and message status retain their existing untagged shapes:
 | API/CLI operation | Required result fields |
 | --- | --- |
 | Account | Provider/account/DID/address, custody, scopes, migration state and public key metadata; CLI reports `credential: null` for older providers without metadata |
+| Sender Profile | Signed revision, digest and diagnostic profile; create is idempotent at revision zero and update submits the revision read immediately beforehand |
 | Grant list | `grants: [{grantId, localRole, grantor, grantee, revision, status, expiresAt}]`, `next: UUIDv7 or null` |
 | Credential list | `credentials: [{credentialId, scopes, createdAt, expiresAt, revokedAt, status}]`, `next: UUID or null`; no tokens/hashes |
 | Inbox list | `messages: [{messageId, sender, deliveredAt}]`, `next: opaque cursor or null` |
@@ -52,7 +53,8 @@ message ID. Unknown locally sent message IDs return 404; known messages without
 authenticated retained delivery status return `indeterminate`/null revision.
 Status is a provider-local authenticated read, not a new federation status query.
 
-Routine account responses stay bounded at 512 KiB; signed Grants at 256 KiB.
+Routine account responses stay bounded at 512 KiB; signed Grants and Sender
+Profiles at 256 KiB, with profile definitions limited to 16 KiB.
 Explicit transfer export retains its separate 100 MB JSON/64 MiB manifest limit.
 HTTPS verification, redirect rejection, current scopes, custody-specific signing,
 serving generations, fences and exact artifact retries remain mandatory.
