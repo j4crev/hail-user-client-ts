@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
-import { decodeBase64Url, encodeBase64Url, inspectSignedPayload, fromDiagnosticJson, type DiagnosticJson, type HailGrant } from "@hailproto/codec";
+import { decodeBase64Url, encodeBase64Url, inspectSignedPayload, fromDiagnosticJson, type DiagnosticJson, type HailGrant, type HailSenderProfile } from "@hailproto/codec";
 import { privateFile } from "./grant-revocation.js";
 import { ClientError } from "./client-error.js";
 import { MANAGED_CUSTODY_PROFILE_VERSION } from "./managed-profile.js";
@@ -166,6 +166,25 @@ export class AccountApiClient {
     if (result.grantId !== payload.grant_id || result.revision !== payload.revision || result.status !== payload.status ||
       result.digest !== digest || result.publication !== "durable") throw new ClientError("RESPONSE_ERROR", "Provider did not acknowledge the exact signed Grant");
     return { grantId: payload.grant_id, revision: payload.revision, status: payload.status, digest, publication: "durable" };
+  }
+
+  async profile():Promise<{representation:Uint8Array;payload:HailSenderProfile;digest:string}>{
+    return this.profileResponse(await this.request("/profile"));
+  }
+
+  async saveProfile(definition:JsonObject,expectedRevision:number){
+    if(!Number.isSafeInteger(expectedRevision)||expectedRevision<0)throw new Error("Expected Sender Profile revision must be non-negative");
+    return this.profileResponse(await this.request("/profile",{definition,expectedRevision}));
+  }
+
+  private profileResponse(result:JsonObject){
+    if(result.type!=="hailp.sender-profile"||result.version!==1||typeof result.cose!=="string"||
+      result.cose.length>349_528||typeof result.digest!=="string"||!/^[A-Za-z0-9_-]{43}$/.test(result.digest)||
+      !Number.isSafeInteger(result.revision))throw new ClientError("RESPONSE_ERROR","Invalid provider Sender Profile response");
+    const representation=decodeBase64Url(result.cose),payload=inspectSignedPayload("hail.sender-profile",representation).payload;
+    const digest=encodeBase64Url(new Uint8Array(createHash("sha256").update(representation).digest()));
+    if(payload.revision!==result.revision||digest!==result.digest)throw new ClientError("RESPONSE_ERROR","Provider Sender Profile bytes do not match");
+    return {representation,payload,digest};
   }
 
   async propose(sender: string, category: string|string[] | null, expiresAt: number | null): Promise<HailGrant> {

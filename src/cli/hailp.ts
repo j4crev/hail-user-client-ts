@@ -22,6 +22,7 @@ import { transferOffer,transferStatus,cancelTransfer,selectTransferAddress,expor
 import { transitionToManaged,transitionToOwner } from "../custody-transition.js";
 import {completeManagedTransfer,exportManagedTransferSnapshot,managedTransferOffer,managedTransferStatus,
   selectManagedTransferAddress,signManagedTransferCutover} from "../managed-account-transfer.js";
+import {createProfile,showProfile,updateProfile} from "../sender-profile.js";
 
 try {
   const parsed = parseCommand(Bun.argv.slice(2));
@@ -96,6 +97,8 @@ try {
     const client = await AccountApiClient.fromCredentialFile(credential, selection);
     let result: unknown;
     if (group === "account") result = await client.account();
+    else if(group==="profile")result=command==="show"?await showProfile(client):command==="create"?
+      await createProfile(client,values.file!):await updateProfile(client,values.file!);
     else if(group==="binding") {
       if(command==="show")result=await showBinding(client);
       else result=await renewBinding(client,values.output!,Number(values["expires-at"]),values.vault);

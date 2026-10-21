@@ -31,6 +31,8 @@ it("proves the process contract and rejects misplaced options, duplicate flags a
     "--snapshot","snapshot.json","--operation","operation.json","--approval","approval.json"]).authenticated).toBe(false);
   expect(parseCommand(["account","managed-transfer","complete","--state","state.json","--snapshot","snapshot.json"]).authenticated).toBe(false);
   expect(parseCommand(["grant", "create", "sender@example.com", "--category", "a", "--category", "b", "--output", "x"]).values.category).toEqual(["a", "b"]);
+  expect(parseCommand(["profile","create","--file","profile.json"]).authenticated).toBe(true);
+  expect(()=>parseCommand(["profile","update"])).toThrow();
 },15_000);
 
 it("binds selection before network, preserves private credentials and produces bounded actionable HTTP errors", async () => {

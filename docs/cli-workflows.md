@@ -113,6 +113,29 @@ hailp account login --provider https://provider.example --did "$did" \
 
 Login issues a new credential; it does not revive old tokens or change custody.
 
+## Publish a Sender Profile
+
+Accounts explicitly publish the categories they offer before another user can
+create a Grant for them:
+
+```json
+{
+  "display_name": "Example sender",
+  "description": "Service notifications",
+  "offers_uncategorized": false,
+  "categories": [{ "id": "updates", "label": "Updates" }]
+}
+```
+
+```bash
+hailp profile create --file /secure/account/profile.json
+hailp profile show
+hailp profile update --file /secure/account/profile.json
+```
+
+Create is idempotent for the same definition and refuses to replace an existing
+profile. Update reads the current revision first and rejects concurrent changes.
+
 ## Work with Grants
 
 The sender address is the party the account permits to send messages.

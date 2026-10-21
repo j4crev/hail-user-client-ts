@@ -52,7 +52,14 @@ then create `/secure/hail-canary/onboarding-attestation.json` with the monitor's
 Repeat the exact `hailp account create` command with:
 
 ```text
---monitor-attestation /secure/hail-canary/onboarding-attestation.json
+  --monitor-attestation /secure/hail-canary/onboarding-attestation.json
+```
+
+After activation, publish an explicit Sender Profile before testing Grants:
+
+```bash
+hailp profile create --file /secure/hail-canary/profile.json \
+  --credentials /secure/hail-canary/api.credential.json
 ```
 
 After activation, verify `hailp account show`, resolve the DID through each
