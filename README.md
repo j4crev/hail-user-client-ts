@@ -1,5 +1,8 @@
 # Hail user client
 
+> [!IMPORTANT]
+> Development has moved to [`hailproto/apps/cli`](https://github.com/j4crev/hailproto/tree/main/apps/cli), and the package is now named `hail-cli-ts`. This repository is retained only for historical issues, releases, and links.
+
 `hailp` is the Hail Protocol reference CLI for account setup, credentials,
 Sender Profiles, Grants, messages, vault backups, and provider transfers. It talks to a
 provider's account API over HTTPS and keeps user signing keys on the client.
